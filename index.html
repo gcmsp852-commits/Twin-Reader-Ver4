@@ -649,6 +649,7 @@
                                         detectedItems.push({
                                             data: res.data,
                                             managementCode: res.managementCode,
+                                            codewords: res.codewords,
                                             points: [
                                                 { x: res.location.topLeftCorner.x + sx, y: res.location.topLeftCorner.y + sy },
                                                 { x: res.location.topRightCorner.x + sx, y: res.location.topRightCorner.y + sy },
@@ -692,6 +693,7 @@
                                         detectedItems.push({
                                             data: cropRes.data,
                                             managementCode: cropRes.managementCode,
+                                            codewords: cropRes.codewords,
                                             points: [
                                                 { x: cropRes.location.topLeftCorner.x + sx, y: cropRes.location.topLeftCorner.y + sy },
                                                 { x: cropRes.location.topRightCorner.x + sx, y: cropRes.location.topRightCorner.y + sy },
@@ -730,6 +732,7 @@
                                 detectedItems.push({
                                     data: cropRes.data,
                                     managementCode: cropRes.managementCode,
+                                    codewords: cropRes.codewords,
                                     points: [
                                         { x: cropRes.location.topLeftCorner.x + sx, y: cropRes.location.topLeftCorner.y + sy },
                                         { x: cropRes.location.topRightCorner.x + sx, y: cropRes.location.topRightCorner.y + sy },
@@ -777,6 +780,7 @@
                                     detectedItems.push({
                                         data: resFull.data,
                                         managementCode: resFull.managementCode,
+                                        codewords: resFull.codewords,
                                         points: [
                                             resFull.location.topLeftCorner,
                                             resFull.location.topRightCorner,
@@ -823,7 +827,7 @@
                             // 2) デジタル署名ではない通常のStage 1処理（第1QRのみ受け入れ）
                             if (topBit !== 0) continue; 
                             
-                            firstQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
+                            firstQR = { text: resultData, managementCode: resultMgmt, points: resultPts, codewords: item.codewords };
                             
                             // 同一データフラグ
                             if (mgmtStr[5] === '1') {
