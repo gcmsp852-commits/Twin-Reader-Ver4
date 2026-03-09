@@ -835,6 +835,9 @@
                                 return;
                             }
 
+                            // 後でQR2が電子署名（010）だった場合に備え、常に第1QRの生コード部を保存する
+                            firstQR.codewords = item.codewords;
+
                             if (scanMode === 'normal') {
                                 // 通常モード
                                 if (mgmtStr[6] === '1') {
@@ -847,13 +850,6 @@
                                     isProcessing = false;
                                     showPasswordScreen();
                                     return;
-                                } else if (mgmtStr.slice(8, 11) === '010') {
-                                    // 電子署名ビットON → 第2QR探索（ハッシュ＋署名検証用）
-                                    scanStage = 3;
-                                    digitalSignStage3 = true;
-                                    firstQR.codewords = item.codewords; // ハッシュ用に生コード語を保存
-                                    statusText.innerText = "第2QR（電子署名データ）を探索中...";
-                                } else {
                                     // 暗号化なし → 第2QR探索
                                     scanStage = 3;
                                     statusText.innerText = "第2QRを探索中...";
@@ -879,9 +875,11 @@
                             const diffTxt = resultData !== firstQR.text;
                             const diffMgmt = firstQR.managementCode !== undefined && resultMgmt !== undefined && firstQR.managementCode !== resultMgmt;
                             
-                            if (digitalSignStage3) {
+                            const isDigitalSign = mgmtStr.slice(8, 11) === '010';
+                            
+                            if (isDigitalSign || digitalSignStage3) {
                                 // 電子署名モードのStage 3
-                                // テキストの内容は異なるのが前提。管理部は同一(ただし第2QR側は0番ビットが1)
+                                // 第2QR側のデータ区分が '010' の場合は電子署名ルートとして処理
                                 if (resultData === firstQR.text) continue; // 同じQRを読んでしまった場合はスルー
                                 
                                 secondQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
