@@ -379,10 +379,6 @@ function scan(matrix, options) {
                     matrix: matrix,
                     isRaw: decoded.isRaw,
                     codewords: decoded.codewords,
-                    correctedDataCodewords: decoded.correctedDataCodewords, // ★ 追加
-                    version: decoded.version, // ★ 追加
-                    ecc: decoded.ecc,         // ★ 追加
-                    mask: decoded.mask,        // ★ 追加
                     formatInfo: decoded.formatInfo,
                     rawMatrixData: decoded.rawMatrixData
                 };
@@ -889,10 +885,6 @@ function decodeMatrix(matrix, options) {
     }
     try {
         var res = decodeData_1.decode(resultBytes, version.versionNumber);
-        res.correctedDataCodewords = Array.from(resultBytes); // ★ 追加：訂正後のデータコード語列
-        res.version = version.versionNumber; // ★ 追加
-        res.ecc = formatInfo.errorCorrectionLevel; // ★ 追加
-        res.mask = formatInfo.dataMask; // ★ 追加
         res.codewords = originalCodewords; // ★ 修正：.shift() で空になった codewords ではなくコピーを返す
         if (options && options.extractRawForFailed) {
             res.rawMatrixData = { codewords: originalCodewords, version: version, formatInfo: formatInfo };
