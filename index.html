@@ -804,6 +804,14 @@
                         const { data: resultData, managementCode: resultMgmt, points: resultPts } = item;
 
                         if (scanStage === 1) {
+                            const mgmtStr = resultMgmt !== undefined ? resultMgmt.toString(2).padStart(16, '0') : "0000000000000000";
+
+                            // ★ 重要：第1QRコードかどうかの判定 (0番ビットが '0' が第1QR)
+                            // 第2QR (0番ビットが '1') を最初に見つけた場合は Stage 1 では無視する
+                            if (mgmtStr[0] !== '0') {
+                                continue;
+                            }
+
                             // ★ Stage 1でQR1を発見した際、その領域を保存しておく（Stage 3のPhase 2.5で再利用するため）
                             if (resultPts && resultPts.length === 4) {
                                 const xs = resultPts.map(p => p.x);
@@ -817,8 +825,6 @@
                             }
 
                             firstQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
-                            
-                            const mgmtStr = resultMgmt !== undefined ? resultMgmt.toString(2).padStart(16, '0') : "0000000000000000";
                             
                             // 同一データフラグ
                             if (mgmtStr[5] === '1') {
@@ -862,6 +868,14 @@
                         }
                         else if (scanStage === 3) {
                             // 第2QR探索中
+                            const mgmtStr = resultMgmt !== undefined ? resultMgmt.toString(2).padStart(16, '0') : "0000000000000000";
+                            
+                            // ★ 重要：第2QRコードかどうかの判定 (0番ビットが '1' が第2QR)
+                            // 第1QRを再び読み取ってしまった場合は無視する
+                            if (mgmtStr[0] !== '1') {
+                                continue;
+                            }
+
                             const diffTxt = resultData !== firstQR.text;
                             const diffMgmt = firstQR.managementCode !== undefined && resultMgmt !== undefined && firstQR.managementCode !== resultMgmt;
                             
