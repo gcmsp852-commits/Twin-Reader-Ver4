@@ -864,6 +864,10 @@
                                         data: resFull.data,
                                         managementCode: resFull.managementCode,
                                         codewords: resFull.codewords,
+                                        correctedDataCodewords: resFull.correctedDataCodewords, // ★ 追加
+                                        version: resFull.version, // ★ 追加
+                                        ecc: resFull.ecc,         // ★ 追加
+                                        mask: resFull.mask,        // ★ 追加
                                         points: [
                                             resFull.location.topLeftCorner,
                                             resFull.location.topRightCorner,
@@ -903,7 +907,16 @@
                                 scanStage = 3;
                                 digitalSignStage3 = true;
                                 if (topBit === 0) {
-                                    firstQR = { text: resultData, managementCode: resultMgmt, points: resultPts, codewords: item.codewords };
+                                    firstQR = { 
+                                        text: resultData, 
+                                        managementCode: resultMgmt, 
+                                        points: resultPts, 
+                                        codewords: item.codewords,
+                                        correctedDataCodewords: item.correctedDataCodewords, // ★ 追加
+                                        version: item.version, // ★ 追加
+                                        ecc: item.ecc,         // ★ 追加
+                                        mask: item.mask        // ★ 追加
+                                    };
                                     statusText.innerText = "第2QR（電子署名データ）を探索中...";
                                 } else {
                                     secondQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
@@ -915,7 +928,16 @@
                             // 2) デジタル署名ではない通常のStage 1処理（第1QRのみ受け入れ）
                             if (topBit !== 0) continue; 
                             
-                            firstQR = { text: resultData, managementCode: resultMgmt, points: resultPts, codewords: item.codewords };
+                            firstQR = { 
+                                text: resultData, 
+                                managementCode: resultMgmt, 
+                                points: resultPts, 
+                                codewords: item.codewords,
+                                correctedDataCodewords: item.correctedDataCodewords, // ★ 追加
+                                version: item.version, // ★ 追加
+                                ecc: item.ecc,         // ★ 追加
+                                mask: item.mask        // ★ 追加
+                            };
                             
                             // 同一データフラグ
                             if (mgmtStr[5] === '1') {
@@ -953,7 +975,16 @@
                                 if (topBit === 1 && !secondQR) {
                                     secondQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
                                 } else if (topBit === 0 && !firstQR) {
-                                    firstQR = { text: resultData, managementCode: resultMgmt, points: resultPts, codewords: item.codewords };
+                                    firstQR = { 
+                                        text: resultData, 
+                                        managementCode: resultMgmt, 
+                                        points: resultPts, 
+                                        codewords: item.codewords,
+                                        correctedDataCodewords: item.correctedDataCodewords, // ★ 追加
+                                        version: item.version, // ★ 追加
+                                        ecc: item.ecc,         // ★ 追加
+                                        mask: item.mask        // ★ 追加
+                                    };
                                 } else {
                                     continue; // それ以外の重複読取は無視
                                 }
