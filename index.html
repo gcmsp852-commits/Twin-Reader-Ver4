@@ -1,0 +1,947 @@
+
+
+
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>QR Twin Reader (全暗号化対応)</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="QRツイン">
+    <meta name="theme-color" content="#121212">
+    <style>
+        body { margin: 0; padding: 0; font-family: -apple-system, sans-serif; background-color: #121212; color: #fff; display: flex; flex-direction: column; align-items: center; height: 100dvh; overflow: hidden; }
+        
+        .header { width: 100%; padding: 15px; background-color: #1e1e1e; text-align: center; font-size: 1.2rem; font-weight: bold; box-shadow: 0 2px 10px rgba(0,0,0,0.5); z-index: 10; box-sizing: border-box; }
+        
+        .camera-container { position: relative; width: 100%; flex: 1; background-color: #000; overflow: hidden; display: flex; justify-content: center; align-items: center; }
+        #camera { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 1; }
+        #overlayCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; pointer-events: none; z-index: 2; }
+        #zxingCanvas { display: none; }
+        
+        #cameraControls { position: absolute; bottom: 30px; left: 0; width: 100%; z-index: 50; display: none; justify-content: center; gap: 15px; pointer-events: none; }
+        #cameraControls .btn { pointer-events: auto; padding: 10px 16px; font-size: 1rem; box-shadow: 0 4px 6px rgba(0,0,0,0.5); }
+
+        
+        .result-panel { width: 100%; padding: 20px 20px calc(20px + env(safe-area-inset-bottom, 20px)) 20px; background-color: #1e1e1e; box-sizing: border-box; text-align: center; z-index: 10; box-shadow: 0 -2px 10px rgba(0,0,0,0.5); display: flex; flex-direction: column; gap: 10px; }
+        
+        .status { font-size: 0.9rem; color: #ff9800; }
+        
+        .btn { background-color: #2196F3; color: white; border: none; padding: 12px 24px; font-size: 1.1rem; border-radius: 8px; cursor: pointer; display: inline-block; margin-top: 5px; }
+        .btn:active { background-color: #1976D2; }
+        .btn.secondary { background-color: #424242; }
+        .btn.secondary:active { background-color: #212121; }
+        .btn.sys-enc { background-color: #FF6F00; }
+        .btn.sys-enc:active { background-color: #E65100; }
+        .btn.double-enc { background-color: #7B1FA2; }
+        .btn.double-enc:active { background-color: #4A148C; }
+        
+        .mode-btns { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+        .mode-btns .btn { width: 80%; max-width: 300px; }
+        
+        /* 画面オーバーレイ (パスワード・結果画面) */
+        .overlay-screen { position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 100; display: none; flex-direction: column; justify-content: center; align-items: center; padding: 20px; box-sizing: border-box; text-align: center; }
+        
+        .overlay-box { background: #1e1e1e; padding: 25px; border-radius: 12px; border: 1px solid #333; width: 90%; max-width: 400px; display: flex; flex-direction: column; gap: 15px; }
+        .overlay-box h2 { margin: 0; color: #4CAF50; font-size: 1.3rem; }
+        .overlay-box p { margin: 0; font-size: 1rem; color: #ccc; word-break: break-all; }
+        .overlay-box input { padding: 12px; font-size: 1.1rem; border-radius: 6px; border: 1px solid #444; background: #000; color: #fff; text-align: center; }
+        input:focus { outline: none; border-color: #2196F3; }
+        
+        .qr-data-card { background: #000; border: 1px solid #333; border-radius: 6px; padding: 10px; text-align: left; }
+        .qr-data-card label { display: block; font-size: 0.8rem; color: #888; margin-bottom: 4px; }
+        .qr-data-card .text { font-size: 1.1rem; color: #fff; word-break: break-all; font-family: monospace; }
+        .qr-data-card .mgmt { font-size: 0.8rem; color: #4CAF50; font-family: monospace; margin-top: 4px; }
+        
+        .enc-badge { display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.85rem; font-weight: bold; margin-bottom: 8px; }
+        .enc-badge.sys { background: rgba(255,111,0,0.2); color: #FF6F00; border: 1px solid rgba(255,111,0,0.4); }
+        .enc-badge.app { background: rgba(123,31,162,0.2); color: #CE93D8; border: 1px solid rgba(123,31,162,0.4); }
+    </style>
+</head>
+<body>
+
+    <div class="header" id="headerText">QR Twin Reader (全暗号化対応)</div>
+    
+    <div class="camera-container">
+        <video id="camera" playsinline autoplay muted></video>
+        <canvas id="overlayCanvas"></canvas>
+        <div id="cameraControls">
+            <button class="btn secondary" onclick="goBack()">🔄 モード切替</button>
+            <button class="btn" onclick="restartScan()">📷 もう一度スキャン</button>
+        </div>
+    </div>
+    <canvas id="zxingCanvas"></canvas>
+
+    <div class="result-panel">
+        <div class="status" id="statusText">モードを選択してください</div>
+        <div id="btnContainer">
+            <div class="mode-btns">
+                <button class="btn" id="normalModeBtn">通常モード</button>
+                <button class="btn double-enc" id="doubleEncModeBtn">二重暗号化モード</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- パスワード入力画面（アプリ暗号化用） -->
+    <div class="overlay-screen" id="passwordScreen">
+        <div class="overlay-box">
+            <h2>QRコードは暗号化されています</h2>
+            <div class="qr-data-card">
+                <label>第1QRのデータ</label>
+                <div class="text" id="qr1PreviewText">-</div>
+            </div>
+            <p>パスワードを入力してスキャン再開</p>
+            <input type="password" id="appPasswordInput" placeholder="Password" />
+            <button class="btn" onclick="submitPassword()">スキャン再開</button>
+            <button class="btn secondary" onclick="cancelPassword()">キャンセル</button>
+        </div>
+    </div>
+
+    <!-- システム暗号化通知画面 -->
+    <div class="overlay-screen" id="sysEncScreen">
+        <div class="overlay-box">
+            <span class="enc-badge sys">🔒 システム暗号化</span>
+            <h2 id="sysEncTitle">QRコードがシステム暗号化されています</h2>
+            <div class="qr-data-card">
+                <label>第1QRのデータ</label>
+                <div class="text" id="sysEncQr1Text">-</div>
+            </div>
+            <p id="sysEncMsg">スキャン再開で第2QRを復号します</p>
+            <button class="btn sys-enc" id="sysEncResumeBtn" onclick="resumeAfterSysEnc()">スキャン再開</button>
+            <button class="btn secondary" onclick="cancelSysEnc()">キャンセル</button>
+        </div>
+    </div>
+
+    <!-- 二重暗号化: 第1QR読取り後画面 -->
+    <div class="overlay-screen" id="doubleEncScreen">
+        <div class="overlay-box">
+            <span class="enc-badge app">🔐 アプリ暗号化</span>
+            <h2>QRコードがアプリ暗号化されています</h2>
+            <div class="qr-data-card">
+                <label>第1QRのデータ</label>
+                <div class="text" id="doubleEncQr1Text">-</div>
+            </div>
+            <p>第2QRを復号するためのパスワードを入力</p>
+            <input type="password" id="doubleEncPasswordInput" placeholder="Password" />
+            <button class="btn double-enc" onclick="resumeAfterDoubleEnc()">スキャン再開</button>
+            <button class="btn secondary" onclick="cancelDoubleEnc()">キャンセル</button>
+        </div>
+    </div>
+
+    <!-- 最終結果画面 -->
+    <div class="overlay-screen" id="resultScreen">
+        <div class="overlay-box" style="gap: 20px;">
+            <h2>読取完了</h2>
+            <div class="qr-data-card" style="border-color: #00E676;">
+                <label style="color:#00E676;">第1QR</label>
+                <div class="text" id="resText1">-</div>
+                
+            </div>
+            <div class="qr-data-card" style="border-color: #29B6F6;">
+                <label style="color:#29B6F6;" id="resLabel2">第2QR</label>
+                <div class="text" id="resText2">-</div>
+            </div>
+            
+            <div id="signResultCard" class="qr-data-card" style="display:none; text-align:center; padding: 15px;">
+                <div id="signResultIcon" style="font-size: 2rem; margin-bottom: 5px;"></div>
+                <div id="signResultMessage" style="font-size: 1.1rem; font-weight: bold;">-</div>
+            </div>
+            <button class="btn" onclick="restartScan()">もう一度スキャン</button>
+        </div>
+    </div>
+
+    <script src="jsQR.js"></script>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+                navigator.serviceWorker.register('./sw.js').then(function(registration) {
+                    console.log('ServiceWorker registration successful');
+                }, function(err) {
+                    console.log('ServiceWorker registration failed: ', err);
+                });
+            });
+        }
+    </script>
+
+    <script>
+        const video = document.getElementById('camera');
+        const overlayCanvas = document.getElementById('overlayCanvas');
+        const ctx = overlayCanvas.getContext('2d', { willReadFrequently: true });
+        
+        const zxingCanvas = document.getElementById('zxingCanvas');
+        const zxingCtx = zxingCanvas.getContext('2d', { willReadFrequently: true });
+
+        const statusText = document.getElementById('statusText');
+
+        let isScanning = false;
+        // scanStage: 0=Idle, 1=Scan QR1, 2=Password/SysEnc wait, 3=Scan QR2
+        let scanStage = 0;
+        let firstQR = null;
+        let secondQR = null;
+        let appMask = null;
+        let lastDetectTime = 0;
+        let isProcessing = false;
+        let sysEncStage3 = false; // 通常モードでシステム暗号化の第2QR探索中フラグ
+        let digitalSignStage3 = false; // ★ 電子署名認証の第2QR探索中フラグ
+        let lastTwinBBox = null; // ★ Stage 1で検出したツインQRの領域を保存
+
+        const SCAN_INTERVAL_MS = 50;
+
+        // モード: 'normal' or 'double'
+        let scanMode = 'normal';
+
+        let barcodeDetector = null;
+        if ('BarcodeDetector' in window) {
+            try {
+                barcodeDetector = new BarcodeDetector({ formats: ['qr_code'] });
+            } catch (e) { console.warn("BarcodeDetector error", e); }
+        }
+
+        // --- 暗号化マスク生成 ---
+        async function sha256BytesAsync(msgBytes) {
+            const hashBuffer = await crypto.subtle.digest('SHA-256', msgBytes);
+            return new Uint8Array(hashBuffer);
+        }
+
+        async function deriveEncryptionMaskBytesAsync(password, neededBytes) {
+            if (!password) return null;
+            const pwBytes = new TextEncoder().encode(password);
+            let h0 = await sha256BytesAsync(pwBytes);
+            let result = new Uint8Array(neededBytes);
+            let offset = 0;
+            let currentHash = h0;
+            
+            while (offset < neededBytes) {
+                const copyLen = Math.min(currentHash.length, neededBytes - offset);
+                result.set(currentHash.subarray(0, copyLen), offset);
+                offset += copyLen;
+                if (offset < neededBytes) {
+                    currentHash = await sha256BytesAsync(currentHash);
+                }
+            }
+            return result;
+        }
+
+        // ===== ECDSA secp160r1 実装 =====
+        const SECP160R1 = {
+            p: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFn,
+            a: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFn - 3n,
+            b: 0x1C97BEFC54BD7A8B65ACF89F81D4D4ADC565FA45n,
+            Gx: 0x4A96B5688EF573284664698968C38BB913CBFC82n,
+            Gy: 0x23A628553168947D59DCC912042351377AC5FB32n,
+            n: 0x0100000000000000000001F4C8F927AED3CA752257n
+        };
+
+        function bigMod(a, m) { return ((a % m) + m) % m; }
+
+        function modInverse(a, m) {
+            a = bigMod(a, m);
+            let [old_r, r] = [a, m];
+            let [old_s, s] = [1n, 0n];
+            while (r !== 0n) {
+                const q = old_r / r;
+                [old_r, r] = [r, old_r - q * r];
+                [old_s, s] = [s, old_s - q * s];
+            }
+            return bigMod(old_s, m);
+        }
+
+        function ecAdd(P, Q, curve) {
+            if (P === null) return Q;
+            if (Q === null) return P;
+            const { p } = curve;
+            const [x1, y1] = P;
+            const [x2, y2] = Q;
+            if (x1 === x2) {
+                if (bigMod(y1 + y2, p) === 0n) return null;
+                const lam = bigMod((3n * x1 * x1 + curve.a) * modInverse(2n * y1, p), p);
+                const x3 = bigMod(lam * lam - 2n * x1, p);
+                const y3 = bigMod(lam * (x1 - x3) - y1, p);
+                return [x3, y3];
+            }
+            const lam = bigMod((y2 - y1) * modInverse(bigMod(x2 - x1, p), p), p);
+            const x3 = bigMod(lam * lam - x1 - x2, p);
+            const y3 = bigMod(lam * (x1 - x3) - y1, p);
+            return [x3, y3];
+        }
+
+        function ecMul(k, P, curve) {
+            let result = null;
+            let addend = P;
+            k = bigMod(k, curve.n);
+            while (k > 0n) {
+                if (k & 1n) result = ecAdd(result, addend, curve);
+                addend = ecAdd(addend, addend, curve);
+                k >>= 1n;
+            }
+            return result;
+        }
+
+        function bytesToBigInt(bytes) {
+            let hex = '';
+            for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, '0');
+            return BigInt('0x' + (hex || '0'));
+        }
+
+        function ecdsaVerify(hashBytes, signature, publicKey, curve) {
+            if (publicKey === null) return false;
+            const r = bytesToBigInt(signature.r);
+            const s = bytesToBigInt(signature.s);
+            if (r <= 0n || r >= curve.n || s <= 0n || s >= curve.n) return false;
+            
+            const z = bytesToBigInt(hashBytes.slice(0, 20));
+            const w = modInverse(s, curve.n);
+            const u1 = bigMod(z * w, curve.n);
+            const u2 = bigMod(r * w, curve.n);
+            
+            const G = [curve.Gx, curve.Gy];
+            const P1 = ecMul(u1, G, curve);
+            const P2 = ecMul(u2, publicKey, curve);
+            const point = ecAdd(P1, P2, curve);
+            
+            if (point === null) return false;
+            return bigMod(point[0], curve.n) === r;
+        }
+
+        // ===== 秘密鍵・公開鍵ペア（10組） =====
+        const ECDSA_PRIVATE_KEYS = [
+            0xAA5E28D6A97A3823FE35A83BE81B48E3B5F6C201n, // 1
+            0xBB6F39E7BA8B4934EF46B94CF92C59F4C6E7D312n, // 2
+            0xCC7040F8CB9C5A45F057CA5D0A3D6A05D7F8E423n, // 3
+            0xDD8151E9DCAD6B56E168DB6E1B4E7B16E8F9F534n, // 4
+            0xEE9262FAEDBE7C67F279EC7F2C5F8C27FA0A0645n, // 5
+            0xFF0373EBFECF8D78E38AFD803D6F9D38EB1B1756n, // 6
+            0xAB1484FC0FD09E89F49B0E914E709E490C2C2867n, // 7
+            0xBC2595ED10E1AF9AE5AC1FA25F81AF5A1D3D3978n, // 8
+            0xCD36A6FE21F2C0ABF6BD20B36092B06B2E4E4A89n, // 9
+            0xDE47B70F3203D1BC07CE31C471A3C17C3F5F5B9An  // 10
+        ];
+
+        const ECDSA_SENDER_NAMES = [
+            '山田 一郎', '鈴木 二郎', '佐藤 三郎', '高橋 四子', '田中 五郎',
+            '伊藤 六子', '渡辺 七郎', '小林 八子', '加藤 九郎', '中村 十郎'
+        ];
+
+        const ECDSA_PUBLIC_KEYS = ECDSA_PRIVATE_KEYS.map(priv => ecMul(priv, [SECP160R1.Gx, SECP160R1.Gy], SECP160R1));
+
+        // --- 描画関数 ---
+        const drawLine = (begin, end, color) => {
+            ctx.beginPath();
+            ctx.moveTo(begin.x, begin.y);
+            ctx.lineTo(end.x, end.y);
+            ctx.lineWidth = 4;
+            ctx.strokeStyle = color;
+            ctx.stroke();
+        };
+
+        const drawBoundingBox = (points, color) => {
+            if (!points || points.length !== 4) return;
+            drawLine(points[0], points[1], color);
+            drawLine(points[1], points[2], color);
+            drawLine(points[2], points[3], color);
+            drawLine(points[3], points[0], color);
+        };
+
+        // --- カメラ制御 ---
+        async function startCamera() {
+            try {
+                statusText.innerText = "カメラをリクエスト中...";
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+                });
+                
+                video.srcObject = stream;
+                video.setAttribute("playsinline", true);
+                
+                await new Promise((resolve) => {
+                    video.onloadeddata = () => resolve();
+                    setTimeout(resolve, 2000);
+                });
+                
+                try {
+                    await video.play();
+                } catch(e) {
+                    statusText.innerText = "画面をタップして再生を許可してください";
+                    return;
+                }
+
+                document.getElementById('btnContainer').style.display = 'none';
+                document.getElementById('cameraControls').style.display = 'flex';
+                scanStage = 1;
+                isScanning = true;
+
+                if (scanMode === 'normal') {
+                    statusText.innerText = "第1QRを探索中... (Hybrid)";
+                } else {
+                    statusText.innerText = "第1QR（システム暗号化）を探索中...";
+                }
+                requestAnimationFrame(scanLoop);
+                
+            } catch (err) {
+                statusText.innerText = "エラー: " + err.message;
+            }
+        }
+
+        // モード選択ボタン
+        document.getElementById('normalModeBtn').addEventListener('click', () => {
+            scanMode = 'normal';
+            document.getElementById('headerText').innerText = 'QR Twin Reader (通常モード)';
+            startCamera();
+        });
+
+        document.getElementById('doubleEncModeBtn').addEventListener('click', () => {
+            scanMode = 'double';
+            document.getElementById('headerText').innerText = 'QR Twin Reader (二重暗号化モード)';
+            startCamera();
+        });
+
+        // --- UI アクション ---
+        function showPasswordScreen() {
+            if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+            
+            isScanning = false;
+            scanStage = 2;
+            document.getElementById('qr1PreviewText').innerText = firstQR.text;
+            document.getElementById('appPasswordInput').value = "";
+            document.getElementById('passwordScreen').style.display = 'flex';
+        }
+
+        function showSysEncScreen() {
+            if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+            
+            isScanning = false;
+            scanStage = 2;
+            document.getElementById('sysEncQr1Text').innerText = firstQR.text;
+            document.getElementById('sysEncScreen').style.display = 'flex';
+        }
+
+        function showDoubleEncScreen() {
+            if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+            
+            isScanning = false;
+            scanStage = 2;
+            document.getElementById('doubleEncQr1Text').innerText = firstQR.text;
+            document.getElementById('doubleEncPasswordInput').value = "";
+            document.getElementById('doubleEncScreen').style.display = 'flex';
+        }
+
+        function cancelPassword() {
+            document.getElementById('passwordScreen').style.display = 'none';
+            goBack();
+        }
+
+        function cancelSysEnc() {
+            document.getElementById('sysEncScreen').style.display = 'none';
+            goBack();
+        }
+
+        function cancelDoubleEnc() {
+            document.getElementById('doubleEncScreen').style.display = 'none';
+            goBack();
+        }
+
+        async function submitPassword() {
+            const pw = document.getElementById('appPasswordInput').value;
+            if (!pw) {
+                alert("パスワードを入力してください");
+                return;
+            }
+            
+            document.getElementById('passwordScreen').style.display = 'none';
+            statusText.innerText = "マスク生成中...";
+            
+            appMask = await deriveEncryptionMaskBytesAsync(pw, 5000);
+            
+            scanStage = 3;
+            if (firstQR) firstQR.points = null;
+            
+            statusText.innerText = "第2QRを探索中... (jsQR XOR)";
+            isScanning = true;
+            lastDetectTime = Date.now();
+            requestAnimationFrame(scanLoop);
+        }
+
+        function resumeAfterSysEnc() {
+            document.getElementById('sysEncScreen').style.display = 'none';
+            
+            scanStage = 3;
+            sysEncStage3 = true; // システム暗号化復号モードをON
+            if (firstQR) firstQR.points = null;
+            
+            statusText.innerText = "第2QR（システム暗号化）を探索中...";
+            isScanning = true;
+            lastDetectTime = Date.now();
+            requestAnimationFrame(scanLoop);
+        }
+
+        async function resumeAfterDoubleEnc() {
+            const pw = document.getElementById('doubleEncPasswordInput').value;
+            if (!pw) {
+                alert("パスワードを入力してください");
+                return;
+            }
+
+            document.getElementById('doubleEncScreen').style.display = 'none';
+            statusText.innerText = "マスク生成中...";
+            
+            // 入力されたパスワードを使用して第2QRのマスク生成
+            appMask = await deriveEncryptionMaskBytesAsync(pw, 5000);
+            
+            scanStage = 3;
+            if (firstQR) firstQR.points = null;
+            
+            statusText.innerText = "第2QR（アプリ暗号化）を探索中...";
+            isScanning = true;
+            lastDetectTime = Date.now();
+            requestAnimationFrame(scanLoop);
+        }
+
+        async function showResultScreen(opts = {}) {
+            if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
+            
+            isScanning = false;
+            document.getElementById('resText1').innerText = firstQR.text;
+            
+            const signCard = document.getElementById('signResultCard');
+            const resLabel2 = document.getElementById('resLabel2');
+            
+            if (opts.digitalSignVerification) {
+                // 電子署名モードの表示
+                resLabel2.innerText = `第2QR: 電子署名データ`;
+                document.getElementById('resText2').innerText = `[電子署名データ]`;
+                
+                signCard.style.display = 'block';
+                if (opts.verified) {
+                    signCard.style.borderColor = '#00E676';
+                    document.getElementById('signResultIcon').innerText = '✅';
+                    document.getElementById('signResultIcon').style.color = '#00E676';
+                    document.getElementById('signResultMessage').innerText = `電子署名の認証ができました。\n作成者は「${opts.senderName}」です。`;
+                    document.getElementById('signResultMessage').style.color = '#00E676';
+                    document.getElementById('resText2').innerText = `電子署名(${opts.senderName})`;
+                } else {
+                    signCard.style.borderColor = '#FF5252';
+                    document.getElementById('signResultIcon').innerText = '❌';
+                    document.getElementById('signResultIcon').style.color = '#FF5252';
+                    document.getElementById('signResultMessage').innerText = '電子署名の認証ができませんでした。';
+                    document.getElementById('signResultMessage').style.color = '#FF5252';
+                }
+            } else {
+                // 通常モードの表示
+                resLabel2.innerText = '第2QR';
+                document.getElementById('resText2').innerText = secondQR.text;
+                signCard.style.display = 'none';
+            }
+            
+            document.getElementById('resultScreen').style.display = 'flex';
+        }
+
+        function goBack() {
+            document.getElementById('resultScreen').style.display = 'none';
+            document.getElementById('passwordScreen').style.display = 'none';
+            document.getElementById('sysEncScreen').style.display = 'none';
+            document.getElementById('doubleEncScreen').style.display = 'none';
+            firstQR = null;
+            secondQR = null;
+            appMask = null;
+            sysEncStage3 = false;
+            digitalSignStage3 = false;
+            lastTwinBBox = null;
+            
+            // モード選択画面に戻す
+            scanStage = 0;
+            isScanning = false;
+            document.getElementById('cameraControls').style.display = 'none';
+            document.getElementById('btnContainer').style.display = '';
+            statusText.innerText = "モードを選択してください";
+            document.getElementById('headerText').innerText = 'QR Twin Reader (システム暗号化対応)';
+        }
+
+        function restartScan() {
+            document.getElementById('resultScreen').style.display = 'none';
+            document.getElementById('passwordScreen').style.display = 'none';
+            document.getElementById('sysEncScreen').style.display = 'none';
+            document.getElementById('doubleEncScreen').style.display = 'none';
+            firstQR = null;
+            secondQR = null;
+            appMask = null;
+            sysEncStage3 = false;
+            digitalSignStage3 = false;
+            lastTwinBBox = null;
+
+            scanStage = 1;
+            isScanning = true;
+            
+            if (scanMode === 'normal') {
+                statusText.innerText = "第1QRを探索中... (Hybrid)";
+            } else {
+                statusText.innerText = "第1QR（システム暗号化）を探索中...";
+            }
+            
+            requestAnimationFrame(scanLoop);
+        }
+
+        // --- メインスキャンループ ---
+        async function scanLoop() {
+            if (!isScanning) return;
+
+            if (video.videoWidth && overlayCanvas.width !== video.videoWidth) {
+                overlayCanvas.width = video.videoWidth;
+                overlayCanvas.height = video.videoHeight;
+            }
+
+            ctx.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
+            if (firstQR && firstQR.points) drawBoundingBox(firstQR.points, '#00E676');
+            if (secondQR && secondQR.points) drawBoundingBox(secondQR.points, '#29B6F6');
+
+            const now = Date.now();
+            if (!isProcessing && now - lastDetectTime > SCAN_INTERVAL_MS && video.readyState >= 2) {
+                isProcessing = true;
+                lastDetectTime = now;
+
+                try {
+                    let detectedItems = [];
+
+                    // === 通常モード: Stage 1 ===
+                    // 二重暗号化モードの Stage 1 ではシステム暗号化された第1QRを探す
+                    // → jsQR の sysEncDecode を使う
+                    const needSysEncForStage1 = (scanMode === 'double' && scanStage === 1);
+                    // 通常モードの Stage 3 でシステム暗号化された第2QRを探す場合
+                    const needSysEncForStage3 = (scanMode === 'normal' && scanStage === 3 && sysEncStage3);
+
+                    let useNativeDetector = barcodeDetector && (scanStage === 1 || (scanStage === 3 && !appMask && !needSysEncForStage3 && !digitalSignStage3));
+                    // システム暗号化復号が必要な場合はネイティブではなくjsQRを使う
+                    if (needSysEncForStage1) {
+                        useNativeDetector = false;
+                    }
+
+                    let cropBBox = null;
+
+                    // --- [フェーズ 1 / ネイティブ優先] Hybrid (BarcodeDetector Crop + jsQR) ---
+                    if (useNativeDetector) {
+                        try {
+                            const barcodes = await barcodeDetector.detect(video);
+                            if (barcodes && barcodes.length > 0) {
+                                for (let i = 0; i < barcodes.length; i++) {
+                                    const b = barcodes[i];
+
+                                    if (scanStage === 3) {
+                                        detectedItems.push({
+                                            data: b.rawValue,
+                                            managementCode: undefined,
+                                            points: b.cornerPoints
+                                        });
+                                        continue;
+                                    }
+
+                                    const bbox = b.boundingBox;
+                                    const PADDING = 50; 
+                                    const sx = Math.max(0, Math.floor(bbox.x) - PADDING);
+                                    const sy = Math.max(0, Math.floor(bbox.y) - PADDING);
+                                    const sw = Math.min(video.videoWidth - sx, Math.ceil(bbox.width) + PADDING * 2);
+                                    const sh = Math.min(video.videoHeight - sy, Math.ceil(bbox.height) + PADDING * 2);
+
+                                    zxingCanvas.width = sw;
+                                    zxingCanvas.height = sh;
+                                    zxingCtx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+                                    const imgData = zxingCtx.getImageData(0, 0, sw, sh);
+
+                                    const res = jsQR(imgData.data, sw, sh, { inversionAttempts: "attemptBoth" });
+                                    
+                                    if (res && res.data && !res.isRaw) {
+                                        detectedItems.push({
+                                            data: res.data,
+                                            managementCode: res.managementCode,
+                                            points: [
+                                                { x: res.location.topLeftCorner.x + sx, y: res.location.topLeftCorner.y + sy },
+                                                { x: res.location.topRightCorner.x + sx, y: res.location.topRightCorner.y + sy },
+                                                { x: res.location.bottomRightCorner.x + sx, y: res.location.bottomRightCorner.y + sy },
+                                                { x: res.location.bottomLeftCorner.x + sx, y: res.location.bottomLeftCorner.y + sy }
+                                            ]
+                                        });
+                                    }
+                                }
+                            }
+                        } catch(err) { /* ignore Native Error */ }
+                    }
+
+                    // --- [フェーズ 2] BarcodeDetector位置検出 + jsQRクロップ復号 (appMask専用ハイブリッド) ---
+                    // appMask設定時: BarcodeDetectorでQRの位置だけ検出→クロップ→jsQRで暗号復号
+                    // BarcodeDetector自身は暗号化QRを復号できないが、位置検出は高速に行える
+                    if (detectedItems.length === 0 && barcodeDetector && scanStage === 3 && appMask) {
+                        try {
+                            const barcodes = await barcodeDetector.detect(video);
+                            if (barcodes && barcodes.length > 0) {
+                                for (let i = 0; i < barcodes.length; i++) {
+                                    const b = barcodes[i];
+                                    const bbox = b.boundingBox;
+                                    const PADDING = 50;
+                                    const sx = Math.max(0, Math.floor(bbox.x) - PADDING);
+                                    const sy = Math.max(0, Math.floor(bbox.y) - PADDING);
+                                    const sw = Math.min(video.videoWidth - sx, Math.ceil(bbox.width) + PADDING * 2);
+                                    const sh = Math.min(video.videoHeight - sy, Math.ceil(bbox.height) + PADDING * 2);
+
+                                    zxingCanvas.width = sw;
+                                    zxingCanvas.height = sh;
+                                    zxingCtx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+                                    const imgData = zxingCtx.getImageData(0, 0, sw, sh);
+
+                                    const cropRes = jsQR(imgData.data, sw, sh, {
+                                        inversionAttempts: "attemptBoth",
+                                        appEncMask: Array.from(appMask)
+                                    });
+
+                                    if (cropRes && cropRes.data && !cropRes.isRaw) {
+                                        detectedItems.push({
+                                            data: cropRes.data,
+                                            managementCode: cropRes.managementCode,
+                                            points: [
+                                                { x: cropRes.location.topLeftCorner.x + sx, y: cropRes.location.topLeftCorner.y + sy },
+                                                { x: cropRes.location.topRightCorner.x + sx, y: cropRes.location.topRightCorner.y + sy },
+                                                { x: cropRes.location.bottomRightCorner.x + sx, y: cropRes.location.bottomRightCorner.y + sy },
+                                                { x: cropRes.location.bottomLeftCorner.x + sx, y: cropRes.location.bottomLeftCorner.y + sy }
+                                            ]
+                                        });
+                                    }
+                                }
+                            }
+                        } catch(err) { /* ignore */ }
+                    }
+
+                    // --- [フェーズ 2.5] Stage 1位置再利用 + jsQRクロップ復号 (二重暗号化などBarcodeDetector失敗時用) ---
+                    // Stage 1で既にツインの座標を取得しているため、その周辺だけを探すことでフルスクリーンを回避する
+                    if (detectedItems.length === 0 && scanStage === 3 && appMask && lastTwinBBox) {
+                        const bbox = lastTwinBBox;
+                        const PADDING = 80; // 多少のカメラ揺れを吸収するため広めに
+                        const sx = Math.max(0, Math.floor(bbox.x) - PADDING);
+                        const sy = Math.max(0, Math.floor(bbox.y) - PADDING);
+                        const sw = Math.min(video.videoWidth - sx, Math.ceil(bbox.width) + PADDING * 2);
+                        const sh = Math.min(video.videoHeight - sy, Math.ceil(bbox.height) + PADDING * 2);
+
+                        if (sw > 0 && sh > 0) {
+                            zxingCanvas.width = sw;
+                            zxingCanvas.height = sh;
+                            zxingCtx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+                            const imgData = zxingCtx.getImageData(0, 0, sw, sh);
+
+                            const cropRes = jsQR(imgData.data, sw, sh, {
+                                inversionAttempts: "attemptBoth",
+                                appEncMask: Array.from(appMask)
+                            });
+
+                            if (cropRes && cropRes.data && !cropRes.isRaw) {
+                                detectedItems.push({
+                                    data: cropRes.data,
+                                    managementCode: cropRes.managementCode,
+                                    points: [
+                                        { x: cropRes.location.topLeftCorner.x + sx, y: cropRes.location.topLeftCorner.y + sy },
+                                        { x: cropRes.location.topRightCorner.x + sx, y: cropRes.location.topRightCorner.y + sy },
+                                        { x: cropRes.location.bottomRightCorner.x + sx, y: cropRes.location.bottomRightCorner.y + sy },
+                                        { x: cropRes.location.bottomLeftCorner.x + sx, y: cropRes.location.bottomLeftCorner.y + sy }
+                                    ]
+                                });
+                            }
+                        }
+                    }
+
+                    // --- [フェーズ 3 / Fallback] Custom jsQR Full-Screen Scan ---
+                    if (detectedItems.length === 0) {
+                        zxingCanvas.width = overlayCanvas.width;
+                        zxingCanvas.height = overlayCanvas.height;
+                        zxingCtx.drawImage(video, 0, 0, zxingCanvas.width, zxingCanvas.height);
+                        const fullData = zxingCtx.getImageData(0, 0, zxingCanvas.width, zxingCanvas.height);
+
+                        const opts = { inversionAttempts: "attemptBoth" };
+
+                        if (scanStage === 3) {
+                            if (appMask) {
+                                opts.appEncMask = Array.from(appMask);
+                            } else if (needSysEncForStage3) {
+                                // 通常モード: 第2QRはシステム暗号化されている
+                                opts.sysEncDecode = true;
+                            } else if (digitalSignStage3) {
+                                // 電子署名Stage3: 第2QRを通常どおり読み取る（マルチ読取オプション）
+                                opts.multi = true;
+                            } else {
+                                opts.multi = true;
+                            }
+                        }
+
+                        // 二重暗号化モードの Stage 1: システム暗号化された第1QRを探す
+                        if (needSysEncForStage1) {
+                            opts.sysEncDecode = true;
+                        }
+
+                        let resFullList = jsQR(fullData.data, fullData.width, fullData.height, opts);
+                        if (resFullList && !Array.isArray(resFullList)) resFullList = [resFullList];
+
+                        if (resFullList && resFullList.length > 0) {
+                            for (let resFull of resFullList) {
+                                if (resFull && resFull.data) {
+                                    if (scanStage === 1 && resFull.isRaw) continue;
+                                    
+                                    detectedItems.push({
+                                        data: resFull.data,
+                                        managementCode: resFull.managementCode,
+                                        points: [
+                                            resFull.location.topLeftCorner,
+                                            resFull.location.topRightCorner,
+                                            resFull.location.bottomRightCorner,
+                                            resFull.location.bottomLeftCorner
+                                        ]
+                                    });
+                                }
+                            }
+                        }
+                    }
+
+                    // --- 結果処理ループ ---
+                    for (let item of detectedItems) {
+                        const { data: resultData, managementCode: resultMgmt, points: resultPts } = item;
+
+                        if (scanStage === 1) {
+                            // ★ Stage 1でQR1を発見した際、その領域を保存しておく（Stage 3のPhase 2.5で再利用するため）
+                            if (resultPts && resultPts.length === 4) {
+                                const xs = resultPts.map(p => p.x);
+                                const ys = resultPts.map(p => p.y);
+                                lastTwinBBox = {
+                                    x: Math.min(...xs),
+                                    y: Math.min(...ys),
+                                    width: Math.max(...xs) - Math.min(...xs),
+                                    height: Math.max(...ys) - Math.min(...ys)
+                                };
+                            }
+
+                            firstQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
+                            
+                            const mgmtStr = resultMgmt !== undefined ? resultMgmt.toString(2).padStart(16, '0') : "0000000000000000";
+                            
+                            // 同一データフラグ
+                            if (mgmtStr[5] === '1') {
+                                secondQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
+                                isScanning = false;
+                                isProcessing = false;
+                                showResultScreen();
+                                return;
+                            }
+
+                            if (scanMode === 'normal') {
+                                // 通常モード
+                                if (mgmtStr[6] === '1') {
+                                    // システム暗号化ビットON → システム暗号化画面を表示
+                                    isProcessing = false;
+                                    showSysEncScreen();
+                                    return;
+                                } else if (mgmtStr[7] === '1') {
+                                    // アプリ暗号化ビットON → パスワード入力画面
+                                    isProcessing = false;
+                                    showPasswordScreen();
+                                    return;
+                                } else if (mgmtStr.slice(8, 11) === '010') {
+                                    // 電子署名ビットON → 第2QR探索（ハッシュ＋署名検証用）
+                                    scanStage = 3;
+                                    digitalSignStage3 = true;
+                                    firstQR.codewords = item.codewords; // ハッシュ用に生コード語を保存
+                                    statusText.innerText = "第2QR（電子署名データ）を探索中...";
+                                } else {
+                                    // 暗号化なし → 第2QR探索
+                                    scanStage = 3;
+                                    statusText.innerText = "第2QRを探索中...";
+                                }
+                            } else {
+                                // 二重暗号化モード
+                                // 第1QR（システム暗号化）を読み取った → アプリ暗号化画面を表示
+                                isProcessing = false;
+                                showDoubleEncScreen();
+                                return;
+                            }
+                        }
+                        else if (scanStage === 3) {
+                            // 第2QR探索中
+                            const diffTxt = resultData !== firstQR.text;
+                            const diffMgmt = firstQR.managementCode !== undefined && resultMgmt !== undefined && firstQR.managementCode !== resultMgmt;
+                            
+                            if (digitalSignStage3) {
+                                // 電子署名モードのStage 3
+                                // テキストの内容は異なるのが前提。管理部は同一(ただし第2QR側は0番ビットが1)
+                                if (resultData === firstQR.text) continue; // 同じQRを読んでしまった場合はスルー
+                                
+                                secondQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
+                                
+                                // 電子署名の検証ロジック
+                                isScanning = false;
+                                isProcessing = false;
+                                statusText.innerText = "電子署名を検証中...";
+                                
+                                // (1) 署名データの抽出 (Base64からの復元)
+                                let signBytes;
+                                try {
+                                    const binaryStr = atob(resultData);
+                                    if (binaryStr.length !== 42) throw new Error("Invalid signature length");
+                                    signBytes = new Uint8Array(42);
+                                    for (let i = 0; i < 42; i++) {
+                                        signBytes[i] = binaryStr.charCodeAt(i);
+                                    }
+                                } catch(e) {
+                                    showResultScreen({
+                                        digitalSignVerification: true,
+                                        verified: false,
+                                        senderName: "不明"
+                                    });
+                                    return;
+                                }
+                                
+                                const keyId = (signBytes[0] << 8) | signBytes[1];
+                                const sigR = signBytes.slice(2, 22);
+                                const sigS = signBytes.slice(22, 42);
+                                
+                                // (2) 第1QRのハッシュ計算
+                                sha256BytesAsync(new Uint8Array(firstQR.codewords)).then(hashValue => {
+                                    let verified = false;
+                                    let senderName = "不明";
+                                    
+                                    if (keyId >= 1 && keyId <= 10) {
+                                        const publicKey = ECDSA_PUBLIC_KEYS[keyId - 1];
+                                        senderName = ECDSA_SENDER_NAMES[keyId - 1];
+                                        verified = ecdsaVerify(hashValue, { r: sigR, s: sigS }, publicKey, SECP160R1);
+                                    }
+                                    
+                                    showResultScreen({
+                                        digitalSignVerification: true,
+                                        verified: verified,
+                                        senderName: senderName
+                                    });
+                                });
+                                return;
+                            } else {
+                                // 通常のStage 3
+                                if (!diffTxt && !diffMgmt) {
+                                    continue;
+                                }
+
+                                secondQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
+                                isScanning = false;
+                                isProcessing = false;
+                                showResultScreen();
+                                return;
+                            }
+                        }
+                    }
+
+                } catch (e) {
+                    console.error("スキャンループエラー", e);
+                }
+                isProcessing = false;
+            }
+
+            if (isScanning) requestAnimationFrame(scanLoop);
+        }
+    </script>
+</body>
+</html>
+
+
