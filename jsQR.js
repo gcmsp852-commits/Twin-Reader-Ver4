@@ -862,6 +862,7 @@ function decodeMatrix(matrix, options) {
             codewords[i] ^= appEncMask[i];
         }
     }
+    var originalCodewords = Array.from(codewords); // ★ 追加：.shift() で消費される前にコピーを保持
     var dataBlocks = getDataBlocks(codewords, version, formatInfo.errorCorrectionLevel);
     if (!dataBlocks) {
         return null;
@@ -884,15 +885,15 @@ function decodeMatrix(matrix, options) {
     }
     try {
         var res = decodeData_1.decode(resultBytes, version.versionNumber);
-        res.codewords = codewords; // ★ 追加：常に codewords を含める
+        res.codewords = originalCodewords; // ★ 修正：.shift() で空になった codewords ではなくコピーを返す
         if (options && options.extractRawForFailed) {
-            res.rawMatrixData = { codewords: codewords, version: version, formatInfo: formatInfo };
+            res.rawMatrixData = { codewords: originalCodewords, version: version, formatInfo: formatInfo };
         }
         return res;
     }
     catch (_a) {
         if (options && options.extractRawForFailed) {
-            return { isRaw: true, codewords: codewords, version: version, formatInfo: formatInfo };
+            return { isRaw: true, codewords: originalCodewords, version: version, formatInfo: formatInfo };
         }
         return null;
     }
