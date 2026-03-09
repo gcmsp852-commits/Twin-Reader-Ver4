@@ -81,6 +81,7 @@
         <div id="btnContainer">
             <div class="mode-btns">
                 <button class="btn" id="normalModeBtn">通常モード</button>
+                <button class="btn sys-enc" id="digitalSignModeBtn">電子署名モード</button>
                 <button class="btn double-enc" id="doubleEncModeBtn">二重暗号化モード</button>
             </div>
         </div>
@@ -394,6 +395,19 @@
             startCamera();
         });
 
+        document.getElementById('digitalSignModeBtn').addEventListener('click', () => {
+            scanMode = 'digital_sign';
+            document.getElementById('headerText').innerText = 'QR Twin Reader (電子署名対応)';
+            startScanByDigitalSign();
+        });
+
+        function startScanByDigitalSign() {
+            scanStage = 3;
+            digitalSignStage3 = true;
+            statusText.innerText = "電子署名モード: 第1/第2QRを探索中...";
+            startCamera();
+        }
+
         // --- UI アクション ---
         function showPasswordScreen() {
             if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
@@ -551,7 +565,7 @@
             document.getElementById('cameraControls').style.display = 'none';
             document.getElementById('btnContainer').style.display = '';
             statusText.innerText = "モードを選択してください";
-            document.getElementById('headerText').innerText = 'QR Twin Reader (システム暗号化対応)';
+            document.getElementById('headerText').innerText = 'QR Twin Reader (全暗号化対応)';
         }
 
         function restartScan() {
@@ -566,12 +580,17 @@
             digitalSignStage3 = false;
             lastTwinBBox = null;
 
-            scanStage = 1;
             isScanning = true;
             
-            if (scanMode === 'normal') {
+            if (scanMode === 'digital_sign') {
+                digitalSignStage3 = true;
+                scanStage = 3;
+                statusText.innerText = "電子署名モード: 第1/第2QRを探索中...";
+            } else if (scanMode === 'normal') {
+                scanStage = 1;
                 statusText.innerText = "第1QRを探索中... (Hybrid)";
             } else {
+                scanStage = 1;
                 statusText.innerText = "第1QR（システム暗号化）を探索中...";
             }
             
@@ -810,8 +829,13 @@
                                 };
                             }
 
-                            // 1) 電子署名ビット（010）のチェック（どちらのQRでも電子署名ビットがONなら）
-                            if (mgmtStr.slice(8, 11) === '010' && scanMode === 'normal') {
+                            // 1) 通常モードでは何もしない（誤判定防止）
+                            //   ただし、電子署名ビットが立っている場合は、通常データとして扱う
+                            //   以前のように自動遷移は行わない
+                            
+                            // 2) デジタル署名モードの初期処理はここではなく、Stage3で扱うが、
+                            //    もしStage1で何らかの理由でここに来た場合は、Stage3へ導く
+                            if (scanMode === 'digital_sign') {
                                 scanStage = 3;
                                 digitalSignStage3 = true;
                                 if (topBit === 0) {
