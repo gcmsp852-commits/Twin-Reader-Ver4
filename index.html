@@ -757,6 +757,11 @@
 
                         const opts = { inversionAttempts: "attemptBoth" };
 
+                        // ★ Stage 1でも、第2QRだけを見つけてしまって無限ループになるのを防ぐため、画面内の全QRを列挙させる
+                        if (scanStage === 1) {
+                            opts.multi = true;
+                        }
+
                         if (scanStage === 3) {
                             if (appMask) {
                                 opts.appEncMask = Array.from(appMask);
