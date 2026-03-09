@@ -151,6 +151,7 @@
     </div>
 
     <script src="jsQR.js"></script>
+    <script src="qrcode.js"></script>
 
     <script>
         if ('serviceWorker' in navigator) {
@@ -183,7 +184,6 @@
         let lastDetectTime = 0;
         let isProcessing = false;
         let sysEncStage3 = false; // 通常モードでシステム暗号化の第2QR探索中フラグ
-        let digitalSignStage3 = false; // 電子署名モードの第2QR（もしくはペア）探索中フラグ
         let lastTwinBBox = null; // ★ Stage 1で検出したツインQRの領域を保存
 
         const SCAN_INTERVAL_MS = 50;
@@ -223,106 +223,6 @@
             return result;
         }
 
-        // ===== ECDSA secp160r1 検証用実装 =====
-        const SECP160R1 = {
-            p: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFn,
-            a: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFn - 3n,
-            b: 0x1C97BEFC54BD7A8B65ACF89F81D4D4ADC565FA45n,
-            Gx: 0x4A96B5688EF573284664698968C38BB913CBFC82n,
-            Gy: 0x23A628553168947D59DCC912042351377AC5FB32n,
-            n: 0x0100000000000000000001F4C8F927AED3CA752257n
-        };
-        
-        function bigMod(a, m) { return ((a % m) + m) % m; }
-        
-        function modInverse(a, m) {
-            a = bigMod(a, m);
-            let [old_r, r] = [a, m];
-            let [old_s, s] = [1n, 0n];
-            while (r !== 0n) {
-                const quotient = old_r / r;
-                [old_r, r] = [r, old_r - quotient * r];
-                [old_s, s] = [s, old_s - quotient * s];
-            }
-            return bigMod(old_s, m);
-        }
-        
-        function pointAdd(P, Q) {
-            if (!P) return Q;
-            if (!Q) return P;
-            const { p, a } = SECP160R1;
-            if (P.x === Q.x && P.y !== Q.y) return null;
-            let m;
-            if (P.x === Q.x && P.y === Q.y) {
-                if (P.y === 0n) return null;
-                m = bigMod((3n * P.x * P.x + a) * modInverse(2n * P.y, p), p);
-            } else {
-                m = bigMod((Q.y - P.y) * modInverse(Q.x - P.x, p), p);
-            }
-            const x = bigMod(m * m - P.x - Q.x, p);
-            const y = bigMod(m * (P.x - x) - P.y, p);
-            return { x, y };
-        }
-        
-        function pointMultiply(k, P) {
-            let R = null;
-            let Q = { x: P.x, y: P.y };
-            let tempK = k;
-            while (tempK > 0n) {
-                if (tempK & 1n) R = pointAdd(R, Q);
-                Q = pointAdd(Q, Q);
-                tempK >>= 1n;
-            }
-            return R;
-        }
-
-        function ecdsaVerify(hashBytes, sigR, sigS, pubKeyHex) {
-            const { p, n, Gx, Gy } = SECP160R1;
-            let hHex = "";
-            for (let i = 0; i < hashBytes.length; i++) hHex += hashBytes[i].toString(16).padStart(2, "0");
-            const e = BigInt("0x" + hHex);
-            const z = e >> BigInt(Math.max(0, hashBytes.length * 8 - 160));
-            
-            const r = BigInt("0x" + Array.from(sigR).map(b => b.toString(16).padStart(2, "0")).join(""));
-            const s = BigInt("0x" + Array.from(sigS).map(b => b.toString(16).padStart(2, "0")).join(""));
-            
-            if (r <= 0n || r >= n || s <= 0n || s >= n) return false;
-            
-            const w = modInverse(s, n);
-            const u1 = bigMod(z * w, n);
-            const u2 = bigMod(r * w, n);
-            
-            const G = { x: Gx, y: Gy };
-            const Qx = BigInt("0x" + pubKeyHex.substring(2, 42));
-            const Qy = BigInt("0x" + pubKeyHex.substring(42, 82));
-            const Q = { x: Qx, y: Qy };
-            
-            const u1G = pointMultiply(u1, G);
-            const u2Q = pointMultiply(u2, Q);
-            const R = pointAdd(u1G, u2Q);
-            
-            if (!R) return false;
-            return bigMod(R.x, n) === r;
-        }
-
-        const ECDSA_PUBLIC_KEYS = {
-            1: "047fd8482d8c39e24021dd3ea54fe982ad7ad6fb6c05ac4d8a141ced3b030dfc823075677b1ceae1ea",
-            2: "0475aa88dc184a4ec410972c2195dfb4a92c4749f55e5fb22e2cebcc142721fdf12217cff9d71ad6ea",
-            3: "0495f517ba6d01dcfbef678c1db17f46fb052db5608c028cd21c37130b0b8cde8b1968832aede7b8dd",
-            4: "04e225ad752b0286cdbf5850935bbffc3e512fd5bd9627725906fa99bdff09ebf07f438c8c201889c3",
-            5: "049ee14a520fa0eb66f6426d0df0fd90edb80beaf9f75ee30be9ef4cba43ff27f31cfaa6b23a9689f0",
-            6: "041cbf89ce86e665d9e5b7c07b469b72f12ffab9cfa4dacc1961e685f679e9564f5cfca021798e4d16",
-            7: "04fce5c63ef54dc791b8f152179d7249f753cddd4a927ce1464c8d374ce31d87e148e42dd9e60a359d",
-            8: "0439fa61b20fef7ce1a5eff83141f1222409fdb896b014282c61093fcba686aa7acbd103c805a5dc67",
-            9: "0449942aaff2bc6ad48a80d50dfd7f1c9c48834ab0dbafdd2cd1640a3d541bf7eb248dbfa677da7dc1",
-            10: "0444321b0dc3d02bfff5d8e7c10b2df7e51c8651a14199fcb0c4309325fbe3d964ff582fc3ceb4e2d3"
-        };
-
-        const ECDSA_SENDER_NAMES = {
-            1: "山田 一郎", 2: "鈴木 二郎", 3: "佐藤 三郎", 4: "高橋 四子", 5: "田中 五郎",
-            6: "伊藤 六子", 7: "渡辺 七郎", 8: "小林 八子", 9: "加藤 九郎", 10: "中村 十郎"
-        };
-
         // --- 描画関数 ---
         const drawLine = (begin, end, color) => {
             ctx.beginPath();
@@ -342,6 +242,148 @@
         };
 
         // --- カメラ制御 ---
+        // ===== ECDSA secp160r1 Public Keys =====
+        const SIGN_PUB_KEYS = [
+          { id: 1, name: "山田 一郎", x: 0xa1ceff02af7c9f0cb3294614e3ee1962ca38fba2n, y: 0x222a9044c5523cc8af2666d2876cd10972547fcan },
+          { id: 2, name: "鈴木 二郎", x: 0xf674f84b172448659e7e3f62e3d220196ad41ce8n, y: 0x6543e102dc209229809d2c7e2bd8467cfd04703cn },
+          { id: 3, name: "佐藤 三郎", x: 0xfe1a3b6f303e03fa3007beacf076211e8df0dc55n, y: 0x26ac3348acced2e94e184f1217f7f2b38831713fn },
+          { id: 4, name: "高橋 四子", x: 0x394618cac5a5fe560befbd0b38596e475a92de43n, y: 0x354c47661bbe27bf6a862fba271a1e2888b1df43n },
+          { id: 5, name: "田中 五郎", x: 0xfebee9654d452ee2039e25bd39f05491f3c5669dn, y: 0xb3e8cb03bd1a18b5abefccb7420cb4bbd086024n },
+          { id: 6, name: "伊藤 六子", x: 0x77f2ea0930f7de4b6f58cb7acf0f8b0b3b71878dn, y: 0x7b5606033b622765aac831fd75ff62d3d29024bcn },
+          { id: 7, name: "渡辺 七郎", x: 0xdb5903a4883a7976a32b1c3cf7402ba3f5efd7c7n, y: 0x3e269cfcf14289d134690914670d978b21cb6740n },
+          { id: 8, name: "小林 八子", x: 0xfbfaad99d2bc92abea524a98a1a0434c364d5ba9n, y: 0xa0cf745a4d4bd7777a33dcf9bf65868aca77db6bn },
+          { id: 9, name: "加藤 九郎", x: 0xab2e59d17aeeb3a713960c157d548ed4acfeb6bfn, y: 0xe434144e55d58b4945efa15337690205795b8c4n },
+          { id: 10, name: "中村 十郎", x: 0xa68457dc242ab3d6c55a09b864df1241ad2b70d0n, y: 0x10ebe177450e2aebc36e31ceb542c4c198f7fe0n }
+        ];
+
+        const SECP160R1 = {
+          p: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFn,
+          a: 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF7FFFFFFFn - 3n,
+          b: 0x1C97BEFC54BD7A8B65ACF89F81D4D4ADC565FA45n,
+          Gx: 0x4A96B5688EF573284664698968C38BB913CBFC82n,
+          Gy: 0x23A628553168947D59DCC912042351377AC5FB32n,
+          n: 0x0100000000000000000001F4C8F927AED3CA752257n
+        };
+
+        function bigMod(a, m) { return ((a % m) + m) % m; }
+        function modInverse(a, m) {
+          a = bigMod(a, m);
+          let [old_r, r] = [a, m];
+          let [old_s, s] = [1n, 0n];
+          while (r !== 0n) {
+            const q = old_r / r;
+            [old_r, r] = [r, old_r - q * r];
+            [old_s, s] = [s, old_s - q * s];
+          }
+          return bigMod(old_s, m);
+        }
+        function ecAdd(P, Q, curve) {
+          if (P === null) return Q;
+          if (Q === null) return P;
+          const { p } = curve;
+          const [x1, y1] = P;
+          const [x2, y2] = Q;
+          if (x1 === x2) {
+            if (bigMod(y1 + y2, p) === 0n) return null;
+            const lam = bigMod((3n * x1 * x1 + curve.a) * modInverse(2n * y1, p), p);
+            const x3 = bigMod(lam * lam - 2n * x1, p);
+            const y3 = bigMod(lam * (x1 - x3) - y1, p);
+            return [x3, y3];
+          }
+          const lam = bigMod((y2 - y1) * modInverse(bigMod(x2 - x1, p), p), p);
+          const x3 = bigMod(lam * lam - x1 - x2, p);
+          const y3 = bigMod(lam * (x1 - x3) - y1, p);
+          return [x3, y3];
+        }
+        function ecMul(k, P, curve) {
+          let result = null;
+          let addend = P;
+          k = bigMod(k, curve.n);
+          while (k > 0n) {
+            if (k & 1n) result = ecAdd(result, addend, curve);
+            addend = ecAdd(addend, addend, curve);
+            k >>= 1n;
+          }
+          return result;
+        }
+        function bytesToBigInt(bytes) {
+          let hex = '';
+          for (let i = 0; i < bytes.length; i++) hex += bytes[i].toString(16).padStart(2, '0');
+          return BigInt('0x' + (hex || '0'));
+        }
+        function ecdsaVerify(hashBytes, signatureBytes, publicKey, curve) {
+          const r = bytesToBigInt(signatureBytes.slice(0, 20));
+          const s = bytesToBigInt(signatureBytes.slice(20, 40));
+          if (r <= 0n || r >= curve.n || s <= 0n || s >= curve.n) return false;
+          const z = bytesToBigInt(hashBytes.slice(0, 20));
+          const w = modInverse(s, curve.n);
+          const u1 = bigMod(z * w, curve.n);
+          const u2 = bigMod(r * w, curve.n);
+          const G = [curve.Gx, curve.Gy];
+          const Q = [publicKey.x, publicKey.y];
+          const P1 = ecMul(u1, G, curve);
+          const P2 = ecMul(u2, Q, curve);
+          const R = ecAdd(P1, P2, curve);
+          if (R === null) return false;
+          return bigMod(R[0], curve.n) === r;
+        }
+
+        // managementCode(16bit) から管理部ビット文字列を取得
+        function mgmtCodeToStr(code) {
+          return (code !== undefined) ? code.toString(2).padStart(16, '0') : "0000000000000000";
+        }
+
+        // SHA-256 (sync)
+        function sha256Bytes(msgBytes) {
+          const K = new Uint32Array([
+            0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+            0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+            0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+            0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+            0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+            0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+            0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+            0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+          ]);
+          function rotr(x,n){ return (x>>>n) | (x<<(32-n)); }
+          function ch(x,y,z){ return (x & y) ^ (~x & z); }
+          function maj(x,y,z){ return (x & y) ^ (x & z) ^ (y & z); }
+          function s0(x){ return rotr(x,7) ^ rotr(x,18) ^ (x>>>3); }
+          function s1(x){ return rotr(x,17) ^ rotr(x,19) ^ (x>>>10); }
+          function S0(x){ return rotr(x,2) ^ rotr(x,13) ^ rotr(x,22); }
+          function S1(x){ return rotr(x,6) ^ rotr(x,11) ^ rotr(x,25); }
+
+          const ml = msgBytes.length;
+          const bitLenHi = Math.floor((ml * 8) / 0x100000000);
+          const bitLenLo = (ml * 8) >>> 0;
+          const withOne = ml + 1;
+          let padLen = (withOne % 64 <= 56) ? (56 - (withOne % 64)) : (56 + 64 - (withOne % 64));
+          const m = new Uint8Array(withOne + padLen + 8);
+          m.set(msgBytes, 0); m[ml] = 0x80;
+          const dv = new DataView(m.buffer);
+          dv.setUint32(m.length - 8, bitLenHi, false);
+          dv.setUint32(m.length - 4, bitLenLo, false);
+
+          let a=0x6a09e667,b=0xbb67ae85,c=0x3c6ef372,d=0xa54ff53a,e=0x510e527f,f=0x9b05688c,g=0x1f83d9ab,h=0x5be0cd19;
+          const W = new Uint32Array(64);
+          for(let off=0; off<m.length; off+=64){
+            for(let i=0;i<16;i++) W[i]=dv.getUint32(off+i*4,false);
+            for(let i=16;i<64;i++) W[i]=(s1(W[i-2]) + W[i-7] + s0(W[i-15]) + W[i-16])>>>0;
+            let A=a,B=b,C=c,D=d,E=e,F=f,G=g,H=h;
+            for(let i=0;i<64;i++){
+              const t1=(H + S1(E) + ch(E,F,G) + K[i] + W[i])>>>0;
+              const t2=(S0(A) + maj(A,B,C))>>>0;
+              H=G;G=F;F=E;E=(D + t1)>>>0;D=C;C=B;B=A;A=(t1 + t2)>>>0;
+            }
+            a=(a+A)>>>0;b=(b+B)>>>0;c=(c+C)>>>0;d=(d+D)>>>0;e=(e+E)>>>0;f=(f+F)>>>0;g=(g+G)>>>0;h=(h+H)>>>0;
+          }
+          const out = new Uint8Array(32);
+          const odv = new DataView(out.buffer);
+          odv.setUint32(0,a,false);odv.setUint32(4,b,false);odv.setUint32(8,c,false);odv.setUint32(12,d,false);
+          odv.setUint32(16,e,false);odv.setUint32(20,f,false);odv.setUint32(24,g,false);odv.setUint32(28,h,false);
+          return out;
+        }
+
         async function startCamera() {
             try {
                 statusText.innerText = "カメラをリクエスト中...";
@@ -495,39 +537,57 @@
             requestAnimationFrame(scanLoop);
         }
 
-        function showResultScreen(digitalSignResult = null) {
+        function showResultScreen() {
             if (navigator.vibrate) navigator.vibrate([40, 30, 40]);
             
             isScanning = false;
             
-            const resText1El = document.getElementById('resText1');
-            const resText2El = document.getElementById('resText2');
-            const resultBox = document.querySelector('#resultScreen .overlay-box');
+            const mg1 = mgmtCodeToStr(firstQR.managementCode);
+            const mg2 = mgmtCodeToStr(secondQR.managementCode);
             
-            // 既存の動的生成要素（電子署名コメントなど）を削除
-            const existingComment = document.getElementById('digitalSignComment');
-            if (existingComment) existingComment.remove();
-            
-            resText1El.innerText = firstQR ? firstQR.text : "-";
-            
-            if (digitalSignResult) {
-                resText2El.innerText = digitalSignResult.verified ? 
-                   `電子署名(${digitalSignResult.senderName})` : "電子署名(検証エラー)";
-                   
-                const commentDiv = document.createElement('div');
-                commentDiv.id = 'digitalSignComment';
-                commentDiv.style.marginTop = "10px";
-                commentDiv.style.fontWeight = "bold";
-                if (digitalSignResult.verified) {
-                    commentDiv.style.color = "#4CAF50";
-                    commentDiv.innerText = `電子署名の認証ができました。\n作成者は「${digitalSignResult.senderName}」です。`;
+            // 電子署名モードのチェック (mgmtStr[9] === '1')
+            if (mg1[9] === '1' && mg2[9] === '1') {
+              try {
+                // 1. QR1の理想的な全コード語を再生成
+                const qr = qrcode(firstQR.version.versionNumber, firstQR.version.errorCorrectionLevel);
+                qr.setManagementBits(firstQR.managementCode);
+                qr.addData(firstQR.text, 'Byte');
+                qr.make();
+                const raw1 = qr.getRawCodewords(); // Uint8Array
+                const hash1 = sha256Bytes(new Uint8Array(raw1));
+                
+                // 2. QR2から署名データを抽出
+                const bin2 = secondQR.binaryData; // Uint8Array
+                if (bin2 && bin2.length >= 42) {
+                  const pubId = (bin2[0] << 8) | bin2[1];
+                  const sig = bin2.slice(2, 42);
+                  const pubKey = SIGN_PUB_KEYS.find(k => k.id === pubId);
+                  
+                  if (pubKey) {
+                    const ok = ecdsaVerify(hash1, sig, pubKey, SECP160R1);
+                    if (ok) {
+                      document.getElementById('resText1').innerHTML = `<span style="color:#00E676;">署名検証成功</span><br>${firstQR.text}`;
+                      document.getElementById('resText2').innerText = `作成者: ${pubKey.name}`;
+                    } else {
+                      document.getElementById('resText1').innerHTML = `<span style="color:#FF1744;">署名検証失敗</span><br>${firstQR.text}`;
+                      document.getElementById('resText2').innerText = `作成者(推定): ${pubKey.name}`;
+                    }
+                  } else {
+                    document.getElementById('resText1').innerText = firstQR.text;
+                    document.getElementById('resText2').innerText = "不明な署名ID: " + pubId;
+                  }
                 } else {
-                    commentDiv.style.color = "#F44336";
-                    commentDiv.innerText = "電子署名の認証ができませんでした。";
+                  document.getElementById('resText1').innerText = firstQR.text;
+                  document.getElementById('resText2').innerText = "署名データ不足";
                 }
-                resultBox.appendChild(commentDiv);
+              } catch (e) {
+                console.error("署名検証エラー", e);
+                document.getElementById('resText1').innerText = firstQR.text;
+                document.getElementById('resText2').innerText = "検証エラー";
+              }
             } else {
-                resText2El.innerText = secondQR ? secondQR.text : "-";
+              document.getElementById('resText1').innerText = firstQR.text;
+              document.getElementById('resText2').innerText = secondQR.text;
             }
             
             document.getElementById('resultScreen').style.display = 'flex';
@@ -542,7 +602,6 @@
             secondQR = null;
             appMask = null;
             sysEncStage3 = false;
-            digitalSignStage3 = false;
             lastTwinBBox = null;
             
             // モード選択画面に戻す
@@ -563,7 +622,6 @@
             secondQR = null;
             appMask = null;
             sysEncStage3 = false;
-            digitalSignStage3 = false;
             lastTwinBBox = null;
 
             scanStage = 1;
@@ -648,8 +706,9 @@
                                     if (res && res.data && !res.isRaw) {
                                         detectedItems.push({
                                             data: res.data,
+                                            binaryData: new Uint8Array(res.binaryData),
                                             managementCode: res.managementCode,
-                                            codewords: res.codewords,
+                                            version: res.version,
                                             points: [
                                                 { x: res.location.topLeftCorner.x + sx, y: res.location.topLeftCorner.y + sy },
                                                 { x: res.location.topRightCorner.x + sx, y: res.location.topRightCorner.y + sy },
@@ -692,8 +751,9 @@
                                     if (cropRes && cropRes.data && !cropRes.isRaw) {
                                         detectedItems.push({
                                             data: cropRes.data,
+                                            binaryData: new Uint8Array(cropRes.binaryData),
                                             managementCode: cropRes.managementCode,
-                                            codewords: cropRes.codewords,
+                                            version: cropRes.version,
                                             points: [
                                                 { x: cropRes.location.topLeftCorner.x + sx, y: cropRes.location.topLeftCorner.y + sy },
                                                 { x: cropRes.location.topRightCorner.x + sx, y: cropRes.location.topRightCorner.y + sy },
@@ -731,8 +791,9 @@
                             if (cropRes && cropRes.data && !cropRes.isRaw) {
                                 detectedItems.push({
                                     data: cropRes.data,
+                                    binaryData: new Uint8Array(cropRes.binaryData),
                                     managementCode: cropRes.managementCode,
-                                    codewords: cropRes.codewords,
+                                    version: cropRes.version,
                                     points: [
                                         { x: cropRes.location.topLeftCorner.x + sx, y: cropRes.location.topLeftCorner.y + sy },
                                         { x: cropRes.location.topRightCorner.x + sx, y: cropRes.location.topRightCorner.y + sy },
@@ -779,8 +840,9 @@
                                     
                                     detectedItems.push({
                                         data: resFull.data,
+                                        binaryData: new Uint8Array(resFull.binaryData),
                                         managementCode: resFull.managementCode,
-                                        codewords: resFull.codewords,
+                                        version: resFull.version,
                                         points: [
                                             resFull.location.topLeftCorner,
                                             resFull.location.topRightCorner,
@@ -796,42 +858,27 @@
                     // --- 結果処理ループ ---
                     for (let item of detectedItems) {
                         const { data: resultData, managementCode: resultMgmt, points: resultPts } = item;
-                        const mgmtStr = resultMgmt !== undefined ? resultMgmt.toString(2).padStart(16, '0') : "0000000000000000";
-                        const topBit = ((resultMgmt || 0) >> 15) & 1; // 0なら第1QR、1なら第2QR
 
                         if (scanStage === 1) {
-                            // Stage 1でQRを発見した際、領域を保存
+                            // ★ Stage 1でQR1を発見した際、その領域を保存しておく（Stage 3のPhase 2.5で再利用するため）
                             if (resultPts && resultPts.length === 4) {
                                 const xs = resultPts.map(p => p.x);
                                 const ys = resultPts.map(p => p.y);
                                 lastTwinBBox = {
-                                    x: Math.min(...xs), y: Math.min(...ys),
-                                    width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys)
+                                    x: Math.min(...xs),
+                                    y: Math.min(...ys),
+                                    width: Math.max(...xs) - Math.min(...xs),
+                                    height: Math.max(...ys) - Math.min(...ys)
                                 };
                             }
 
-                            // 1) 電子署名ビット（010）のチェック（どちらのQRでも電子署名ビットがONなら）
-                            if (mgmtStr.slice(8, 11) === '010' && scanMode === 'normal') {
-                                scanStage = 3;
-                                digitalSignStage3 = true;
-                                if (topBit === 0) {
-                                    firstQR = { text: resultData, managementCode: resultMgmt, points: resultPts, codewords: item.codewords };
-                                    statusText.innerText = "第2QR（電子署名データ）を探索中...";
-                                } else {
-                                    secondQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
-                                    statusText.innerText = "第1QR（元のデータ）を探索中...";
-                                }
-                                continue;
-                            }
-
-                            // 2) デジタル署名ではない通常のStage 1処理（第1QRのみ受け入れ）
-                            if (topBit !== 0) continue; 
+                            firstQR = { text: resultData, binaryData: item.binaryData, managementCode: resultMgmt, version: item.version, points: resultPts };
                             
-                            firstQR = { text: resultData, managementCode: resultMgmt, points: resultPts, codewords: item.codewords };
+                            const mgmtStr = resultMgmt !== undefined ? resultMgmt.toString(2).padStart(16, '0') : "0000000000000000";
                             
                             // 同一データフラグ
                             if (mgmtStr[5] === '1') {
-                                secondQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
+                                secondQR = { text: resultData, binaryData: item.binaryData, managementCode: resultMgmt, version: item.version, points: resultPts };
                                 isScanning = false;
                                 isProcessing = false;
                                 showResultScreen();
@@ -839,89 +886,40 @@
                             }
 
                             if (scanMode === 'normal') {
+                                // 通常モード
                                 if (mgmtStr[6] === '1') {
+                                    // システム暗号化ビットON → システム暗号化画面を表示
                                     isProcessing = false;
                                     showSysEncScreen();
                                     return;
                                 } else if (mgmtStr[7] === '1') {
+                                    // アプリ暗号化ビットON → パスワード入力画面
                                     isProcessing = false;
                                     showPasswordScreen();
                                     return;
                                 } else {
+                                    // 暗号化なし → 第2QR探索
                                     scanStage = 3;
                                     statusText.innerText = "第2QRを探索中...";
                                 }
                             } else {
                                 // 二重暗号化モード
+                                // 第1QR（システム暗号化）を読み取った → アプリ暗号化画面を表示
                                 isProcessing = false;
                                 showDoubleEncScreen();
                                 return;
                             }
                         }
                         else if (scanStage === 3) {
-                            // ★ 電子署名モードのペア探索中
-                            if (digitalSignStage3) {
-                                // もし missing QR が見つかったら
-                                if (topBit === 1 && !secondQR) {
-                                    secondQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
-                                } else if (topBit === 0 && !firstQR) {
-                                    firstQR = { text: resultData, managementCode: resultMgmt, points: resultPts, codewords: item.codewords };
-                                } else {
-                                    continue; // それ以外の重複読取は無視
-                                }
-
-                                // 必要な両方のQRが揃った → 電子署名の検証を実行
-                                if (firstQR && secondQR) {
-                                    isScanning = false;
-                                    isProcessing = false;
-                                    statusText.innerText = "電子署名を検証中...";
-                                    
-                                    // (1) Base64からの復元
-                                    let signBytes;
-                                    try {
-                                        const binaryStr = atob(secondQR.text);
-                                        if (binaryStr.length !== 42) throw new Error("Invalid signature length");
-                                        signBytes = new Uint8Array(42);
-                                        for (let i = 0; i < 42; i++) signBytes[i] = binaryStr.charCodeAt(i);
-                                    } catch(e) {
-                                        showResultScreen({ verified: false, senderName: "不明" });
-                                        return;
-                                    }
-                                    
-                                    const keyId = (signBytes[0] << 8) | signBytes[1];
-                                    const sigR = signBytes.slice(2, 22);
-                                    const sigS = signBytes.slice(22, 42);
-                                    
-                                    // (2) 第1QRのハッシュ計算と検証
-                                    sha256BytesAsync(new Uint8Array(firstQR.codewords)).then(hashValue => {
-                                        let verified = false;
-                                        let senderName = "不明";
-                                        
-                                        const pubKeyCacheHex = ECDSA_PUBLIC_KEYS[keyId];
-                                        if (pubKeyCacheHex) {
-                                            senderName = ECDSA_SENDER_NAMES[keyId] || `ID:${keyId}`;
-                                            verified = ecdsaVerify(hashValue, sigR, sigS, pubKeyCacheHex);
-                                        }
-                                        
-                                        showResultScreen({ verified: verified, senderName: senderName });
-                                    }).catch(err => {
-                                        console.error("Hash calculation failed", err);
-                                        showResultScreen({ verified: false, senderName: "エラー" });
-                                    });
-                                    return;
-                                }
-                                continue;
-                            }
-
-                            // デジタル署名ではない通常のStage 3処理
-                            if (topBit !== 1) continue; 
-
+                            // 第2QR探索中
                             const diffTxt = resultData !== firstQR.text;
                             const diffMgmt = firstQR.managementCode !== undefined && resultMgmt !== undefined && firstQR.managementCode !== resultMgmt;
                             
-                            if (!diffTxt && !diffMgmt) continue;
+                            if (!diffTxt && !diffMgmt) {
+                                continue;
+                            }
 
-                            secondQR = { text: resultData, managementCode: resultMgmt, points: resultPts };
+                            secondQR = { text: resultData, binaryData: item.binaryData, managementCode: resultMgmt, version: item.version, points: resultPts };
                             isScanning = false;
                             isProcessing = false;
                             showResultScreen();
