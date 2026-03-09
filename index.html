@@ -1031,8 +1031,9 @@
                                             hashSource.set(q1Data, 5);
 
                                             const hashValue = sha256Bytes(hashSource);
+                                            const hashHex = bytesToHex(hashValue);
                                             
-                                            console.log(`[Verify] KeyID: ${keyId}, Ver: ${firstQR.version}, ECC: ${firstQR.ecc}, Mask: ${firstQR.mask}, Mgmt: ${mgmt}, HashSourceLen: ${hashSource.length}, Hash: ${bytesToHex(hashValue)}`);
+                                            console.log(`[Verify] KeyID: ${keyId}, Ver: ${firstQR.version}, ECC: ${firstQR.ecc}, Mask: ${firstQR.mask}, Mgmt: ${mgmt}, Hash: ${hashHex}`);
                                             console.log(`[Verify] HashSourceHex: ${bytesToHex(hashSource)}`);
 
                                         if (pubKeyCacheHex) {
