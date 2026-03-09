@@ -884,6 +884,7 @@ function decodeMatrix(matrix, options) {
     }
     try {
         var res = decodeData_1.decode(resultBytes, version.versionNumber);
+        res.codewords = codewords; // ★ 追加：常に codewords を含める
         if (options && options.extractRawForFailed) {
             res.rawMatrixData = { codewords: codewords, version: version, formatInfo: formatInfo };
         }
