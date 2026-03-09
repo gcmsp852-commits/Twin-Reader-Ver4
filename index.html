@@ -806,9 +806,10 @@
                         if (scanStage === 1) {
                             const mgmtStr = resultMgmt !== undefined ? resultMgmt.toString(2).padStart(16, '0') : "0000000000000000";
 
-                            // ★ 重要：第1QRコードかどうかの判定 (0番ビットが '0' が第1QR)
-                            // 第2QR (0番ビットが '1') を最初に見つけた場合は Stage 1 では無視する
-                            if (mgmtStr[0] !== '0') {
+                            // ★ 重要：第1QRコードかどうかの判定 (最上位ビットが '0' が第1QR)
+                            // 第2QR (最上位ビットが '1') を最初に見つけた場合は Stage 1 では無視する
+                            const topBit = ((resultMgmt || 0) >> 15) & 1;
+                            if (topBit !== 0) {
                                 continue;
                             }
 
@@ -866,9 +867,10 @@
                             // 第2QR探索中
                             const mgmtStr = resultMgmt !== undefined ? resultMgmt.toString(2).padStart(16, '0') : "0000000000000000";
                             
-                            // ★ 重要：第2QRコードかどうかの判定 (0番ビットが '1' が第2QR)
+                            // ★ 重要：第2QRコードかどうかの判定 (最上位ビットが '1' が第2QR)
                             // 第1QRを再び読み取ってしまった場合は無視する
-                            if (mgmtStr[0] !== '1') {
+                            const topBit = ((resultMgmt || 0) >> 15) & 1;
+                            if (topBit !== 1) {
                                 continue;
                             }
 
