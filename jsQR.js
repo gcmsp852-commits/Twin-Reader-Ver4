@@ -379,10 +379,6 @@ function scan(matrix, options) {
                     matrix: matrix,
                     isRaw: decoded.isRaw,
                     codewords: decoded.codewords,
-                    correctedDataCodewords: decoded.correctedDataCodewords, // ★ 追加
-                    version: decoded.version, // ★ 追加
-                    ecc: decoded.ecc,         // ★ 追加
-                    mask: decoded.mask,        // ★ 追加
                     formatInfo: decoded.formatInfo,
                     rawMatrixData: decoded.rawMatrixData
                 };
@@ -889,11 +885,11 @@ function decodeMatrix(matrix, options) {
     }
     try {
         var res = decodeData_1.decode(resultBytes, version.versionNumber);
-        res.correctedDataCodewords = Array.from(resultBytes); // ★ 追加：訂正後のデータコード語列
-        res.version = version.versionNumber; // ★ 追加
-        res.ecc = formatInfo.errorCorrectionLevel; // ★ 追加
-        res.mask = formatInfo.dataMask; // ★ 追加
-        res.codewords = originalCodewords; // ★ 修正：.shift() で空になった codewords ではなくコピーを返す
+        res.codewords = originalCodewords;
+        res.correctedData = resultBytes; // ★ 追加: 誤り訂正後の生のデータ語（ハッシュ用）
+        res.version = version.versionNumber; // ★ 追加: バージョン
+        res.ecc = formatInfo.errorCorrectionLevel; // ★ 追加: ECCレベル
+        res.mask = formatInfo.dataMask; // ★ 追加: マスクパターン
         if (options && options.extractRawForFailed) {
             res.rawMatrixData = { codewords: originalCodewords, version: version, formatInfo: formatInfo };
         }
@@ -9838,7 +9834,20 @@ function extract(image, location) {
             var xValue = x + 0.5;
             var yValue = y + 0.5;
             var sourcePixel = mappingFunction(xValue, yValue);
-            matrix.set(x, y, image.get(Math.floor(sourcePixel.x), Math.floor(sourcePixel.y)));
+            
+            // ★ 改良点：サブピクセル・サンプリング (3x3)
+            // 菱形構造の境界付近でのサンプリングミスを防ぐため、中心付近の9点をサンプリングして多数決を行う
+            var blackCount = 0;
+            for (var dy = -0.15; dy <= 0.15; dy += 0.15) {
+                for (var dx = -0.15; dx <= 0.15; dx += 0.15) {
+                    var px = Math.floor(sourcePixel.x + dx);
+                    var py = Math.floor(sourcePixel.y + dy);
+                    if (image.get(px, py)) {
+                        blackCount++;
+                    }
+                }
+            }
+            matrix.set(x, y, blackCount >= 5);
         }
     }
     return {
@@ -10204,8 +10213,9 @@ function findAlignmentPattern(matrix, alignmentPatternQuads, topRight, topLeft, 
             return;
         }
         var sizeScore = scorePattern({ x: Math.floor(x), y: Math.floor(y) }, [1, 1, 1], matrix);
-        // 菱形パターンの場合は sizeScore が Infinity または非常に悪くなるため、距離 d を最優先で評価する。
-        var score = (d * 100) + (sizeScore === Infinity ? 50 : sizeScore);
+        // ★ 改良点：菱形パターンの場合は scorePattern (1:1:1比率チェック) が非常に大きくなるため、
+        // スコアの重みを下げ、距離 d (予想位置) を極めて重視するように変更。 
+        var score = (d * 50) + (sizeScore === Infinity ? 100 : sizeScore * 0.1);
         return { x: x, y: y, score: score };
     })
         .filter(function (v) { return !!v; })
