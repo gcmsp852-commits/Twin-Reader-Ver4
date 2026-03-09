@@ -402,9 +402,9 @@
         });
 
         function startScanByDigitalSign() {
-            scanStage = 3;
-            digitalSignStage3 = true;
-            statusText.innerText = "電子署名モード: 第1/第2QRを探索中...";
+            scanStage = 1;
+            digitalSignStage3 = false;
+            statusText.innerText = "電子署名モード: 第1QRを探索中...";
             startCamera();
         }
 
@@ -641,15 +641,6 @@
                                 for (let i = 0; i < barcodes.length; i++) {
                                     const b = barcodes[i];
 
-                                    if (scanStage === 3) {
-                                        detectedItems.push({
-                                            data: b.rawValue,
-                                            managementCode: undefined,
-                                            points: b.cornerPoints
-                                        });
-                                        continue;
-                                    }
-
                                     const bbox = b.boundingBox;
                                     const PADDING = 50; 
                                     const sx = Math.max(0, Math.floor(bbox.x) - PADDING);
@@ -662,20 +653,23 @@
                                     zxingCtx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
                                     const imgData = zxingCtx.getImageData(0, 0, sw, sh);
 
-                                    const res = jsQR(imgData.data, sw, sh, { inversionAttempts: "attemptBoth" });
-                                    
-                                    if (res && res.data && !res.isRaw) {
-                                        detectedItems.push({
-                                            data: res.data,
-                                            managementCode: res.managementCode,
-                                            codewords: res.codewords,
-                                            points: [
-                                                { x: res.location.topLeftCorner.x + sx, y: res.location.topLeftCorner.y + sy },
-                                                { x: res.location.topRightCorner.x + sx, y: res.location.topRightCorner.y + sy },
-                                                { x: res.location.bottomRightCorner.x + sx, y: res.location.bottomRightCorner.y + sy },
-                                                { x: res.location.bottomLeftCorner.x + sx, y: res.location.bottomLeftCorner.y + sy }
-                                            ]
-                                        });
+                                    const resList = jsQR(imgData.data, sw, sh, { inversionAttempts: "attemptBoth", multi: true });
+                                    if (resList && resList.length > 0) {
+                                        for (const res of resList) {
+                                            if (res && res.data && !res.isRaw) {
+                                                detectedItems.push({
+                                                    data: res.data,
+                                                    managementCode: res.managementCode,
+                                                    codewords: res.codewords,
+                                                    points: [
+                                                        { x: res.location.topLeftCorner.x + sx, y: res.location.topLeftCorner.y + sy },
+                                                        { x: res.location.topRightCorner.x + sx, y: res.location.topRightCorner.y + sy },
+                                                        { x: res.location.bottomRightCorner.x + sx, y: res.location.bottomRightCorner.y + sy },
+                                                        { x: res.location.bottomLeftCorner.x + sx, y: res.location.bottomLeftCorner.y + sy }
+                                                    ]
+                                                });
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -703,11 +697,58 @@
                                     zxingCtx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
                                     const imgData = zxingCtx.getImageData(0, 0, sw, sh);
 
-                                    const cropRes = jsQR(imgData.data, sw, sh, {
+                                    const cropResList = jsQR(imgData.data, sw, sh, {
                                         inversionAttempts: "attemptBoth",
-                                        appEncMask: Array.from(appMask)
+                                        appEncMask: Array.from(appMask),
+                                        multi: true
                                     });
 
+                                    if (cropResList && cropResList.length > 0) {
+                                        for (const cropRes of cropResList) {
+                                            if (cropRes && cropRes.data && !cropRes.isRaw) {
+                                                detectedItems.push({
+                                                    data: cropRes.data,
+                                                    managementCode: cropRes.managementCode,
+                                                    codewords: cropRes.codewords,
+                                                    points: [
+                                                        { x: cropRes.location.topLeftCorner.x + sx, y: cropRes.location.topLeftCorner.y + sy },
+                                                        { x: cropRes.location.topRightCorner.x + sx, y: cropRes.location.topRightCorner.y + sy },
+                                                        { x: cropRes.location.bottomRightCorner.x + sx, y: cropRes.location.bottomRightCorner.y + sy },
+                                                        { x: cropRes.location.bottomLeftCorner.x + sx, y: cropRes.location.bottomLeftCorner.y + sy }
+                                                    ]
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } catch(err) { /* ignore */ }
+                    }
+
+                    // --- [フェーズ 2.5] Stage 1位置再利用 + jsQRクロップ復号 (二重暗号化などBarcodeDetector失敗時用) ---
+                    // Stage 1で既にツインの座標を取得しているため、その周辺だけを探すことでフルスクリーンを回避する
+                    if (detectedItems.length === 0 && scanStage === 3 && (appMask || digitalSignStage3) && lastTwinBBox) {
+                        const bbox = lastTwinBBox;
+                        const PADDING = 80; // 多少のカメラ揺れを吸収するため広めに
+                        const sx = Math.max(0, Math.floor(bbox.x) - PADDING);
+                        const sy = Math.max(0, Math.floor(bbox.y) - PADDING);
+                        const sw = Math.min(video.videoWidth - sx, Math.ceil(bbox.width) + PADDING * 2);
+                        const sh = Math.min(video.videoHeight - sy, Math.ceil(bbox.height) + PADDING * 2);
+
+                        if (sw > 0 && sh > 0) {
+                            zxingCanvas.width = sw;
+                            zxingCanvas.height = sh;
+                            zxingCtx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
+                            const imgData = zxingCtx.getImageData(0, 0, sw, sh);
+
+                            const cropResList = jsQR(imgData.data, sw, sh, {
+                                inversionAttempts: "attemptBoth",
+                                appEncMask: Array.from(appMask),
+                                multi: true
+                            });
+
+                            if (cropResList && cropResList.length > 0) {
+                                for (const cropRes of cropResList) {
                                     if (cropRes && cropRes.data && !cropRes.isRaw) {
                                         detectedItems.push({
                                             data: cropRes.data,
@@ -722,43 +763,6 @@
                                         });
                                     }
                                 }
-                            }
-                        } catch(err) { /* ignore */ }
-                    }
-
-                    // --- [フェーズ 2.5] Stage 1位置再利用 + jsQRクロップ復号 (二重暗号化などBarcodeDetector失敗時用) ---
-                    // Stage 1で既にツインの座標を取得しているため、その周辺だけを探すことでフルスクリーンを回避する
-                    if (detectedItems.length === 0 && scanStage === 3 && appMask && lastTwinBBox) {
-                        const bbox = lastTwinBBox;
-                        const PADDING = 80; // 多少のカメラ揺れを吸収するため広めに
-                        const sx = Math.max(0, Math.floor(bbox.x) - PADDING);
-                        const sy = Math.max(0, Math.floor(bbox.y) - PADDING);
-                        const sw = Math.min(video.videoWidth - sx, Math.ceil(bbox.width) + PADDING * 2);
-                        const sh = Math.min(video.videoHeight - sy, Math.ceil(bbox.height) + PADDING * 2);
-
-                        if (sw > 0 && sh > 0) {
-                            zxingCanvas.width = sw;
-                            zxingCanvas.height = sh;
-                            zxingCtx.drawImage(video, sx, sy, sw, sh, 0, 0, sw, sh);
-                            const imgData = zxingCtx.getImageData(0, 0, sw, sh);
-
-                            const cropRes = jsQR(imgData.data, sw, sh, {
-                                inversionAttempts: "attemptBoth",
-                                appEncMask: Array.from(appMask)
-                            });
-
-                            if (cropRes && cropRes.data && !cropRes.isRaw) {
-                                detectedItems.push({
-                                    data: cropRes.data,
-                                    managementCode: cropRes.managementCode,
-                                    codewords: cropRes.codewords,
-                                    points: [
-                                        { x: cropRes.location.topLeftCorner.x + sx, y: cropRes.location.topLeftCorner.y + sy },
-                                        { x: cropRes.location.topRightCorner.x + sx, y: cropRes.location.topRightCorner.y + sy },
-                                        { x: cropRes.location.bottomRightCorner.x + sx, y: cropRes.location.bottomRightCorner.y + sy },
-                                        { x: cropRes.location.bottomLeftCorner.x + sx, y: cropRes.location.bottomLeftCorner.y + sy }
-                                    ]
-                                });
                             }
                         }
                     }
