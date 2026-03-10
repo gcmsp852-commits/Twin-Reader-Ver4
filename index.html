@@ -1,13 +1,12 @@
 
 
 
-
 <!DOCTYPE html>
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>QR Twin Reader</title>
+    <title>QR Twin Reader (全暗号化対応)</title>
     <link rel="manifest" href="manifest.json">
     <link rel="apple-touch-icon" href="icon.png">
     <meta name="apple-mobile-web-app-capable" content="yes">
@@ -65,7 +64,7 @@
 </head>
 <body>
 
-    <div class="header" id="headerText">QR Twin Reader</div>
+    <div class="header" id="headerText">QR Twin Reader (全暗号化対応)</div>
     
     <div class="camera-container">
         <video id="camera" playsinline autoplay muted></video>
@@ -122,12 +121,12 @@
     <div class="overlay-screen" id="doubleEncScreen">
         <div class="overlay-box">
             <span class="enc-badge app">🔐 アプリ暗号化</span>
-            <h2>QRコードがアプリ暗号化されています。パスワードAは以下です。</h2>
+            <h2>QRコードがアプリ暗号化されています</h2>
             <div class="qr-data-card">
-                <label>パスワードA</label>
+                <label>第1QRのデータ</label>
                 <div class="text" id="doubleEncQr1Text">-</div>
             </div>
-            <p>パスワードAを入力</p>
+            <p>第2QRを復号するためのパスワードを入力</p>
             <input type="password" id="doubleEncPasswordInput" placeholder="Password" />
             <button class="btn double-enc" onclick="resumeAfterDoubleEnc()">スキャン再開</button>
             <button class="btn secondary" onclick="cancelDoubleEnc()">キャンセル</button>
@@ -137,11 +136,14 @@
     <!-- 最終結果画面 -->
     <div class="overlay-screen" id="resultScreen">
         <div class="overlay-box" style="gap: 20px;">
-            <h2>ファイルのパスワードFは以下です</h2>
-                            
-           
+            <h2>読取完了</h2>
+            <div class="qr-data-card" style="border-color: #00E676;">
+                <label style="color:#00E676;">第1QR</label>
+                <div class="text" id="resText1">-</div>
+                
+            </div>
             <div class="qr-data-card" style="border-color: #29B6F6;">
-                <label style="color:#29B6F6;">パスワードF</label>
+                <label style="color:#29B6F6;">第2QR</label>
                 <div class="text" id="resText2">-</div>
                 
             </div>
@@ -623,7 +625,7 @@
             document.getElementById('cameraControls').style.display = 'none';
             document.getElementById('btnContainer').style.display = '';
             statusText.innerText = "モードを選択してください";
-            document.getElementById('headerText').innerText = 'QR Twin Reader';
+            document.getElementById('headerText').innerText = 'QR Twin Reader (全暗号化対応)';
         }
 
         function restartScan() {
