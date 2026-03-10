@@ -814,10 +814,6 @@
                                             data: cropRes.data,
                                             managementCode: cropRes.managementCode,
                                             codewords: cropRes.codewords,
-                                            correctedData: cropRes.correctedData,
-                                            version: cropRes.version,
-                                            ecc: cropRes.ecc,
-                                            mask: cropRes.mask,
                                             points: [
                                                 { x: cropRes.location.topLeftCorner.x + sx, y: cropRes.location.topLeftCorner.y + sy },
                                                 { x: cropRes.location.topRightCorner.x + sx, y: cropRes.location.topRightCorner.y + sy },
@@ -868,10 +864,6 @@
                                         data: resFull.data,
                                         managementCode: resFull.managementCode,
                                         codewords: resFull.codewords,
-                                        correctedData: resFull.correctedData,
-                                        version: resFull.version,
-                                        ecc: resFull.ecc,
-                                        mask: resFull.mask,
                                         points: [
                                             resFull.location.topLeftCorner,
                                             resFull.location.topRightCorner,
@@ -915,11 +907,7 @@
                                         text: resultData, 
                                         managementCode: resultMgmt, 
                                         points: resultPts, 
-                                        codewords: item.codewords,
-                                        correctedData: item.correctedData,
-                                        version: item.version,
-                                        ecc: item.ecc,
-                                        mask: item.mask
+                                        codewords: item.codewords
                                     };
                                     statusText.innerText = "第2QR（電子署名データ）を探索中...";
                                 } else {
@@ -936,11 +924,7 @@
                                 text: resultData, 
                                 managementCode: resultMgmt, 
                                 points: resultPts, 
-                                codewords: item.codewords,
-                                correctedData: item.correctedData,
-                                version: item.version,
-                                ecc: item.ecc,
-                                mask: item.mask
+                                codewords: item.codewords
                             };
                             
                             // 同一データフラグ
@@ -983,11 +967,7 @@
                                         text: resultData, 
                                         managementCode: resultMgmt, 
                                         points: resultPts, 
-                                        codewords: item.codewords,
-                                        correctedData: item.correctedData,
-                                        version: item.version,
-                                        ecc: item.ecc,
-                                        mask: item.mask
+                                        codewords: item.codewords
                                     };
                                 } else {
                                     continue; // それ以外の重複読取は無視
@@ -1021,22 +1001,16 @@
                                             let verified = false;
                                             let senderName = "不明";
 
-                                            // (2) 第1QRのハッシュ計算 (改良版：正規化されたRS訂正後データを使用)
-                                            const codewords = firstQR.correctedData;
-                                            const hashSource = new Uint8Array(5 + codewords.length);
-                                            hashSource[0] = firstQR.version;
-                                            hashSource[1] = firstQR.ecc;
-                                            hashSource[2] = firstQR.mask;
-                                            hashSource[3] = (firstQR.managementCode >> 8) & 0xFF;
-                                            hashSource[4] = firstQR.managementCode & 0xFF;
-                                            hashSource.set(codewords, 5);
+                                            // (2) 正規化文字列ベースのハッシュ計算（生成側と同じ方式）
+                                            const signMessage = `SIGV1|${firstQR.text}|${firstQR.managementCode}`;
+                                            const signMessageBytes = new TextEncoder().encode(signMessage);
+                                            const hashValue = sha256Bytes(signMessageBytes);
                                             
-                                            const hashValue = sha256Bytes(hashSource);
-                                            console.log(`[Verify] KeyID: ${keyId}, SourceLen: ${hashSource.length}, Hash: ${bytesToHex(hashValue)}`);
+                                            console.log(`[Verify] KeyID: ${keyId}, SignMessage: ${signMessage}, Hash: ${bytesToHex(hashValue)}`);
 
                                         if (pubKeyCacheHex) {
                                             senderName = ECDSA_SENDER_NAMES[keyId] || `ID:${keyId}`;
-                                            verified = ecdsaVerify(hashSource, sigR, sigS, pubKeyCacheHex);
+                                            verified = ecdsaVerify(signMessageBytes, sigR, sigS, pubKeyCacheHex);
                                         }
                                         
                                         showResultScreen({ verified: verified, senderName: senderName });
