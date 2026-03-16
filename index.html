@@ -137,14 +137,14 @@
     <!-- 最終結果画面 -->
     <div class="overlay-screen" id="resultScreen">
         <div class="overlay-box" style="gap: 20px;">
-            <h2>ファイルのパスワードFは以下です</h2>
+            <h2 id="resultTitle">ファイルのパスワードFは以下です</h2>
             <div class="qr-data-card" style="border-color: #00E676;">
-                <label style="color:#00E676;">パスワードA</label>
+                <label id="resLabel1" style="color:#00E676;">パスワードA</label>
                 <div class="text" id="resText1">-</div>
                 
             </div>
             <div class="qr-data-card" style="border-color: #29B6F6;">
-                <label style="color:#29B6F6;">パスワードF</label>
+                <label id="resLabel2" style="color:#29B6F6;">パスワードF</label>
                 <div class="text" id="resText2">-</div>
                 
             </div>
@@ -579,6 +579,21 @@
             const resText2El = document.getElementById('resText2');
             const resultBox = document.querySelector('#resultScreen .overlay-box');
             
+            const resultTitle = document.getElementById('resultTitle');
+            const resLabel1 = document.getElementById('resLabel1');
+            const resLabel2 = document.getElementById('resLabel2');
+
+            // モードに応じて表示テキストを切り替え
+            if (scanMode === 'double') {
+                resultTitle.innerText = "ファイルのパスワードFは以下です";
+                resLabel1.innerText = "パスワードA";
+                resLabel2.innerText = "パスワードF";
+            } else {
+                resultTitle.innerText = "読取終了";
+                resLabel1.innerText = "QR1データ";
+                resLabel2.innerText = "QR2データ";
+            }
+
             // 既存の動的生成要素（電子署名コメントなど）を削除
             const existingComment = document.getElementById('digitalSignComment');
             if (existingComment) existingComment.remove();
